@@ -255,12 +255,16 @@ class VideoIndexerVisualEnrichmentTests(unittest.TestCase):
 
 class VideoIndexerWindowRequestTests(unittest.TestCase):
     def setUp(self):
+        for name, value in (("azure_storage_account", "teststorage"), ("azure_storage_videos_container", "videos")):
+            setting = patch.object(indexing.settings, name, value)
+            setting.start()
+            self.addCleanup(setting.stop)
         app = FastAPI()
         app.include_router(indexing.router, prefix="/api/indexing")
         self.client = TestClient(app)
         self.addCleanup(self.client.close)
         self.request = {
-            "video_id": "test-video", "filename": "match.mp4", "blob_url": "https://example.test/video",
+            "video_id": "test-video", "filename": "match.mp4", "blob_url": "https://teststorage.blob.core.windows.net/videos/match.mp4",
         }
 
     def test_window_choices_and_legacy_default_reach_pipeline(self):

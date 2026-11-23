@@ -7,11 +7,13 @@ import shutil
 import subprocess
 import tempfile
 from base64 import b64encode
+from collections.abc import Collection
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote, unquote, urlparse
 from uuid import uuid4
 
+from azure.core import MatchConditions
 from azure.storage.blob import (
     BlobSasPermissions,
     ContentSettings,
@@ -68,13 +70,6 @@ def upload_blob(container: str, blob_name: str, data: bytes, content_type: str =
     return blob_client.url
 
 
-def upload_stream(container: str, blob_name: str, stream, length: int, content_type: str = "video/mp4") -> str:
-    bs = blob_service()
-    blob_client = bs.get_container_client(container).get_blob_client(blob_name)
-    blob_client.upload_blob(stream, overwrite=True, length=length, content_type=content_type)
-    return blob_client.url
-
-
 def _split_blob_url(blob_url: str) -> tuple[str, str] | None:
     parsed = urlparse(blob_url)
     expected_host = f"{settings.azure_storage_account}.blob.core.windows.net"
@@ -86,12 +81,40 @@ def _split_blob_url(blob_url: str) -> tuple[str, str] | None:
     return parts[0], unquote(parts[1])
 
 
-def blob_client_from_url(blob_url: str):
+def _safe_blob_name(blob_name: str) -> bool:
+    return bool(blob_name) and "\\" not in blob_name and "\x00" not in blob_name and not any(
+        part in {".", ".."} for part in blob_name.split("/")
+    )
+
+
+def blob_client_from_url(blob_url: str, containers: Collection[str] | None = None):
+    """Return the client of a blob in this storage account (optionally limited to `containers`)."""
     split = _split_blob_url(blob_url)
     if not split:
         raise ValueError("Blob URL is not in this storage account.")
     container, blob_name = split
+    if containers is not None and container not in containers:
+        raise ValueError("Blob URL is not in an allowed container.")
+    if not _safe_blob_name(blob_name):
+        raise ValueError("Invalid blob path.")
     return blob_service().get_container_client(container).get_blob_client(blob_name)
+
+
+def served_containers() -> frozenset[str]:
+    """Containers whose blobs the API may stream to browsers or delete: source videos and thumbnails."""
+    return frozenset({settings.azure_storage_videos_container, settings.azure_storage_thumbnails_container})
+
+
+def require_video_blob_url(blob_url: str) -> str:
+    """Validate that a URL is the plain URL of a blob in the configured videos container; return it canonical.
+
+    Every URL that is later signed (SAS), handed to Video Indexer or opened by ffmpeg goes through here, so a
+    caller cannot point the pipeline at other containers, other hosts or local files.
+    """
+    parsed = urlparse(blob_url.strip())
+    if parsed.query or parsed.fragment or parsed.params:
+        raise ValueError("Use the plain blob URL without query string or fragment.")
+    return blob_client_from_url(blob_url.strip(), {settings.azure_storage_videos_container}).url
 
 
 def proxy_blob_url(blob_url: str) -> str:
@@ -117,6 +140,7 @@ def commit_upload_blocks(container: str, blob_name: str, total_blocks: int, cont
     blob.commit_block_list(
         block_ids,
         content_settings=ContentSettings(content_type=content_type or "application/octet-stream"),
+        match_condition=MatchConditions.IfMissing,  # an upload session can never replace an existing video
     )
     return blob.url
 
@@ -129,15 +153,9 @@ def delete_blob_by_url(blob_url: str) -> bool:
     """Delete a blob given its full URL. Returns True on success, False if missing."""
     if not blob_url:
         return False
-    parsed = urlparse(blob_url.split("?", 1)[0])
-    parts = parsed.path.lstrip("/").split("/", 1)
-    if len(parts) != 2:
-        return False
-    container, blob_name = parts
     try:
-        blob_service().get_container_client(container).get_blob_client(blob_name).delete_blob(
-            delete_snapshots="include"
-        )
+        blob = blob_client_from_url(blob_url.split("?", 1)[0], served_containers())
+        blob.delete_blob(delete_snapshots="include")
         return True
     except Exception as e:  # noqa: BLE001
         log.warning("delete_blob_by_url failed for %s: %s", blob_url, e)
@@ -165,7 +183,7 @@ def make_sas_url(blob_url: str, hours: int = 2) -> str:
     """Generate a read-only SAS URL using user delegation (AAD-based, no account key)."""
     split = _split_blob_url(blob_url)
     if not split:
-        return blob_url
+        raise ValueError("Blob URL is not in this storage account.")
     container, blob_name = split
     canonical_url = blob_client_from_url(blob_url).url
     key, key_expiry = _get_user_delegation_key(min_remaining_hours=hours)
@@ -184,29 +202,6 @@ def make_sas_url(blob_url: str, hours: int = 2) -> str:
         expiry=sas_expiry,
     )
     return f"{canonical_url}?{sas}"
-
-
-def make_upload_sas_url(container: str, blob_name: str, minutes: int = 60) -> tuple[str, str]:
-    """Generate a write-only SAS URL for direct browser-to-blob uploads.
-
-    Returns (blob_url, upload_url_with_sas). Permissions: create + write.
-    """
-    bs = blob_service()
-    blob_client = bs.get_container_client(container).get_blob_client(blob_name)
-    blob_url = blob_client.url
-    hours_needed = max(minutes / 60.0, 0.0)
-    key, key_expiry = _get_user_delegation_key(min_remaining_hours=hours_needed)
-    requested_expiry = datetime.now(timezone.utc) + timedelta(minutes=minutes)
-    sas_expiry = min(requested_expiry, key_expiry)
-    sas = generate_blob_sas(
-        account_name=settings.azure_storage_account,
-        container_name=container,
-        blob_name=blob_name,
-        user_delegation_key=key,
-        permission=BlobSasPermissions(create=True, write=True),
-        expiry=sas_expiry,
-    )
-    return blob_url, f"{blob_url}?{sas}"
 
 
 def _redact_sas(value) -> str:

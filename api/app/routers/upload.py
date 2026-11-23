@@ -4,10 +4,11 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from typing import Annotated
 from urllib.parse import parse_qs, urlparse
 
-from azure.core.exceptions import AzureError, HttpResponseError, ResourceNotFoundError
-from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from azure.core.exceptions import AzureError, HttpResponseError, ResourceExistsError, ResourceNotFoundError
+from fastapi import APIRouter, HTTPException, Path, Query, Request
 
 from app.azure_clients import blob_service
 from app.config import settings
@@ -17,11 +18,11 @@ from app.models import (
     StoredVideoList,
     UploadCommitRequest,
     UploadResponse,
-    UploadSasRequest,
-    UploadSasResponse,
+    UploadSessionRequest,
     UploadSessionResponse,
 )
-from app.storage import blob_client_from_url, commit_upload_blocks, make_upload_sas_url, stage_upload_block, upload_stream
+from app.storage import blob_client_from_url, commit_upload_blocks, stage_upload_block
+from app.validation import VideoId
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -33,6 +34,8 @@ _ALLOWED_EXT = {
     ".mpeg", ".mpg", ".ts", ".m2ts", ".mts",
 }
 _PROXY_BLOCK_SIZE = 4 * 1024 * 1024
+_MAX_BLOCKS = 50000  # Azure Blob limit for a block blob
+_VIDEO_CONTENT_TYPE = re.compile(r"video/[A-Za-z0-9.+-]{1,64}")
 
 
 def _safe_name(name: str) -> str:
@@ -50,7 +53,7 @@ def _check_ext(filename: str) -> str:
 
 
 def _check_blob_name(video_id: str, blob_name: str) -> None:
-    if not blob_name.startswith(f"{video_id}/") or ".." in blob_name or "\\" in blob_name:
+    if not blob_name.startswith(f"{video_id}/") or "/" in blob_name[len(video_id) + 1:] or ".." in blob_name or "\\" in blob_name:
         raise HTTPException(400, "Invalid upload session.")
     _check_ext(blob_name.rsplit("/", 1)[-1])
 
@@ -134,7 +137,7 @@ def reference_video(req: StorageReferenceRequest) -> UploadResponse:
 
 
 @router.post("/session", response_model=UploadSessionResponse)
-async def upload_session(req: UploadSasRequest) -> UploadSessionResponse:
+async def upload_session(req: UploadSessionRequest) -> UploadSessionResponse:
     """Start an API-proxied block upload.
 
     This is the private-storage path: the browser sends small blocks to the
@@ -160,10 +163,13 @@ async def upload_session(req: UploadSasRequest) -> UploadSessionResponse:
 
 
 @router.put("/session/{video_id}/blocks/{block_index}")
-async def upload_session_block(video_id: str, block_index: int, blob_name: str, request: Request) -> dict:
+async def upload_session_block(
+    video_id: VideoId,
+    block_index: Annotated[int, Path(ge=0, lt=_MAX_BLOCKS)],
+    blob_name: Annotated[str, Query(max_length=1024)],
+    request: Request,
+) -> dict:
     _check_blob_name(video_id, blob_name)
-    if block_index < 0:
-        raise HTTPException(400, "block_index must be non-negative.")
     data = await request.body()
     if not data:
         raise HTTPException(400, "Empty upload block.")
@@ -174,81 +180,16 @@ async def upload_session_block(video_id: str, block_index: int, blob_name: str, 
 
 
 @router.post("/session/{video_id}/commit", response_model=UploadResponse)
-async def upload_session_commit(video_id: str, req: UploadCommitRequest) -> UploadResponse:
+async def upload_session_commit(video_id: VideoId, req: UploadCommitRequest) -> UploadResponse:
     _check_blob_name(video_id, req.blob_name)
     max_bytes = settings.max_upload_mb * 1024 * 1024
     if req.size_bytes > max_bytes:
         raise HTTPException(413, f"File exceeds {settings.max_upload_mb} MB limit.")
-    blob_url = commit_upload_blocks(
-        settings.azure_storage_videos_container,
-        req.blob_name,
-        req.total_blocks,
-        content_type=req.content_type or "video/mp4",
-    )
+    content_type = req.content_type if _VIDEO_CONTENT_TYPE.fullmatch(req.content_type or "") else "video/mp4"
+    try:
+        blob_url = commit_upload_blocks(
+            settings.azure_storage_videos_container, req.blob_name, req.total_blocks, content_type=content_type,
+        )
+    except ResourceExistsError as exc:
+        raise HTTPException(409, "This upload was already completed.") from exc
     return UploadResponse(video_id=video_id, blob_url=blob_url, size_bytes=req.size_bytes, filename=req.filename)
-
-
-@router.post("/sas", response_model=UploadSasResponse)
-async def upload_sas(req: UploadSasRequest) -> UploadSasResponse:
-    """Issue a short-lived write SAS so the browser can PUT directly to blob.
-
-    This avoids streaming the file through the API container, which is required
-    for large videos (multi-hundred-MB) that otherwise hit App Service request
-    limits or exhaust container memory.
-    """
-    _check_ext(req.filename)
-    max_bytes = settings.max_upload_mb * 1024 * 1024
-    if req.size_bytes is not None and req.size_bytes > max_bytes:
-        raise HTTPException(413, f"File exceeds {settings.max_upload_mb} MB limit.")
-
-    video_id = uuid.uuid4().hex[:12]
-    blob_name = f"{video_id}/{_safe_name(req.filename)}"
-    # Scale SAS lifetime with file size: assume a conservative ~1 MiB/s sustained
-    # browser-to-blob throughput and add a 15-minute floor + 30-minute headroom
-    # for retries. Cap at max_upload_minutes (30 by default) only when that is
-    # already larger — never go below what a slow link would need to finish.
-    base_minutes = max(15, settings.max_upload_minutes)
-    if req.size_bytes:
-        size_mb = max(1, req.size_bytes // (1024 * 1024))
-        needed = (size_mb // 60) + 30  # ~1 MiB/s + 30 min headroom
-        minutes = max(base_minutes, needed)
-    else:
-        minutes = base_minutes
-    blob_url, upload_url = make_upload_sas_url(
-        container=settings.azure_storage_videos_container,
-        blob_name=blob_name,
-        minutes=minutes,
-    )
-    return UploadSasResponse(
-        video_id=video_id,
-        blob_name=blob_name,
-        blob_url=blob_url,
-        upload_url=upload_url,
-        expires_minutes=minutes,
-    )
-
-
-@router.post("", response_model=UploadResponse)
-async def upload(file: UploadFile = File(...)) -> UploadResponse:
-    _check_ext(file.filename or "")
-
-    # Read once to get size & enforce limit (acceptable for demo-sized files <= 500MB)
-    content = await file.read()
-    size = len(content)
-    max_bytes = settings.max_upload_mb * 1024 * 1024
-    if size > max_bytes:
-        raise HTTPException(413, f"File exceeds {settings.max_upload_mb} MB limit.")
-
-    video_id = uuid.uuid4().hex[:12]
-    blob_name = f"{video_id}/{_safe_name(file.filename)}"
-
-    from io import BytesIO
-    blob_url = upload_stream(
-        container=settings.azure_storage_videos_container,
-        blob_name=blob_name,
-        stream=BytesIO(content),
-        length=size,
-        content_type=file.content_type or "video/mp4",
-    )
-
-    return UploadResponse(video_id=video_id, blob_url=blob_url, size_bytes=size, filename=file.filename)

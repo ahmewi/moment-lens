@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,14 +23,22 @@ configure_telemetry()
 
 app = FastAPI(title="MomentLens API", version="0.1.0")
 
-# CORS — App Service serves UI from same origin, but allow localhost dev.
+# CORS: the UI is served from the same origin; only the local dev servers need an allowance.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:8000"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    return response
 
 
 @app.get("/api/health")
@@ -63,28 +71,41 @@ app.include_router(search.router,  prefix="/api/search",  tags=["search"])
 app.include_router(videos.router,  prefix="/api/videos",  tags=["library"])
 
 
-# Serve built React UI from /app/static (created at Docker build time)
-STATIC_DIR = Path(__file__).parent / "static"
 NO_CACHE_HEADERS = {
     "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
     "Pragma": "no-cache",
     "Expires": "0",
 }
-if STATIC_DIR.exists() and (STATIC_DIR / "index.html").exists():
-    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
-    @app.get("/{full_path:path}")
+
+def mount_ui(application: FastAPI, static_dir: Path) -> bool:
+    """Serve the built React UI (created at Docker build time) from `static_dir`.
+
+    Returns False when there is no build, so the API can run on its own.
+    """
+    if not (static_dir / "index.html").exists():
+        return False
+    root = static_dir.resolve()
+    application.mount("/assets", StaticFiles(directory=root / "assets"), name="assets")
+
+    @application.get("/{full_path:path}")
     def spa_fallback(full_path: str):
         # API and docs paths are handled before this; everything else -> SPA index.html
         if full_path.startswith(("api/", "docs", "openapi.json")):
             return {"detail": "not found"}
-        # Serve any real file that ships under static/ (logo, favicon, robots.txt, etc.)
-        candidate = STATIC_DIR / full_path
-        if full_path and candidate.is_file():
+        # Serve any real file that ships under static/ (logo, favicon, robots.txt, etc.), but never
+        # anything outside it: resolve first so "..", encoded separators and symlinks cannot escape.
+        candidate = (root / full_path).resolve()
+        if full_path and candidate.is_file() and candidate.is_relative_to(root):
             return FileResponse(candidate)
         # index.html must never be cached — it references hashed asset filenames
         # that change on every deploy. Without no-store, browsers serve a stale
         # index.html that points at a JS bundle that no longer exists.
-        return FileResponse(STATIC_DIR / "index.html", headers=NO_CACHE_HEADERS)
-else:
+        return FileResponse(root / "index.html", headers=NO_CACHE_HEADERS)
+
+    return True
+
+
+STATIC_DIR = Path(__file__).parent / "static"
+if not mount_ui(app, STATIC_DIR):
     log.warning("Static UI directory %s not found — running API-only.", STATIC_DIR)

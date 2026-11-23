@@ -11,6 +11,7 @@ from app.azure_clients import search_client
 from app.config import settings
 from app.odata import quote
 from app.storage import delete_blob_by_url, delete_blobs_with_prefix, proxy_blob_url
+from app.validation import VideoId
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -65,7 +66,7 @@ def list_jobs() -> dict:
 
 
 @router.get("/{video_id}/scenes")
-def list_scenes(video_id: str) -> dict:
+def list_scenes(video_id: VideoId) -> dict:
     """Return all SceneCard documents for a video, sorted by start_seconds.
 
     Each row carries a `play_url` + `thumbnail_url` served by this API, ready for the UI.
@@ -128,7 +129,7 @@ def _preserve_source_blob(video_id: str, blob_url: str) -> bool:
 
 
 @router.delete("/{video_id}")
-def delete_video(video_id: str, purge_storage: bool = True) -> dict:
+def delete_video(video_id: VideoId, purge_storage: bool = True) -> dict:
     """Remove indexed video data while retaining referenced or shared source blobs."""
     if not video_id:
         raise HTTPException(400, "video_id is required")

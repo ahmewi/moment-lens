@@ -5,6 +5,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from app.validation import VIDEO_ID_PATTERN
+
 ProcessingStatus = Literal["uploaded", "submitted", "processing", "indexed", "failed"]
 
 StageName = Literal["upload", "analyze"]
@@ -60,18 +62,10 @@ class StoredVideoList(BaseModel):
     continuation_token: Optional[str] = None
 
 
-class UploadSasRequest(BaseModel):
-    filename: str
-    content_type: Optional[str] = None
-    size_bytes: Optional[int] = None
-
-
-class UploadSasResponse(BaseModel):
-    video_id: str
-    blob_name: str
-    blob_url: str
-    upload_url: str
-    expires_minutes: int
+class UploadSessionRequest(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    content_type: Optional[str] = Field(default=None, max_length=128)
+    size_bytes: Optional[int] = Field(default=None, ge=0)
 
 
 class UploadSessionResponse(BaseModel):
@@ -82,17 +76,17 @@ class UploadSessionResponse(BaseModel):
 
 
 class UploadCommitRequest(BaseModel):
-    blob_name: str
-    filename: str
-    size_bytes: int
-    content_type: Optional[str] = None
+    blob_name: str = Field(max_length=1024)
+    filename: str = Field(min_length=1, max_length=255)
+    size_bytes: int = Field(ge=0)
+    content_type: Optional[str] = Field(default=None, max_length=128)
     total_blocks: int = Field(ge=1, le=50000)
 
 
 class ProcessRequest(BaseModel):
-    video_id: str
-    filename: str
-    blob_url: str
+    video_id: str = Field(pattern=VIDEO_ID_PATTERN)
+    filename: str = Field(min_length=1, max_length=512)
+    blob_url: str = Field(min_length=1, max_length=2048)
     content_type: ContentType = "soccer_match"
     source_language: Optional[str] = Field(default=None, max_length=32)
     indexing_window_seconds: Literal[0, 20, 30] = 0

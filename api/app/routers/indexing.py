@@ -15,6 +15,8 @@ from app.pipelines.event_enrichment import PROFILES, profile_for, read_video_jso
 from app.pipelines.indexer import ensure_indexes
 from app.pipelines.video_indexer import get_source_languages, get_vi_access_token, process_video
 from app.pipelines.visual_enrich import enrich_video_events
+from app.storage import require_video_blob_url
+from app.validation import VideoId
 
 router = APIRouter()
 _enrichment_lock = threading.Lock()
@@ -128,7 +130,7 @@ def enrich_profile(content_type: ContentType) -> dict:
 
 
 @router.get("/events/{video_id}")
-def events(video_id: str, response: Response) -> dict:
+def events(video_id: VideoId, response: Response) -> dict:
     manifest, raw = _video_metadata(video_id)
     video = (raw.get("videos") or [{}])[0]
     native = video.get("insights") or {}
@@ -147,7 +149,7 @@ def events(video_id: str, response: Response) -> dict:
 
 
 @router.get("/widgets/{video_id}")
-def widgets(video_id: str, response: Response) -> dict:
+def widgets(video_id: VideoId, response: Response) -> dict:
     manifest, raw = _video_metadata(video_id)
     video = (raw.get("videos") or [{}])[0]
     vi_id = str((manifest or {}).get("vi_video_id") or video.get("id") or raw.get("id") or "")
@@ -164,7 +166,7 @@ def widgets(video_id: str, response: Response) -> dict:
 
 
 @router.post("/events/{video_id}/enrich", response_model=ProcessJob)
-def enrich_events(video_id: str, req: EventEnrichmentRequest) -> ProcessJob:
+def enrich_events(video_id: VideoId, req: EventEnrichmentRequest) -> ProcessJob:
     if not profile_for(req.content_type):
         raise HTTPException(422, "No event extraction profile is configured for this content type")
     _video_metadata(video_id)
@@ -195,11 +197,15 @@ def start(req: ProcessRequest) -> ProcessJob:
         source_language = supported.get(requested_language.casefold())
         if source_language is None:
             raise HTTPException(422, "Unsupported Video Indexer source language.")
+    try:
+        blob_url = require_video_blob_url(req.blob_url)
+    except ValueError as exc:
+        raise HTTPException(400, "Use the URL of a video in the configured video container.") from exc
     ensure_indexes()
     return jobs.run_async(
         video_id=req.video_id,
         target=lambda on_progress, on_status, on_stage: process_video(
-            req.video_id, req.filename, req.blob_url,
+            req.video_id, req.filename, blob_url,
             content_type=req.content_type,
             source_language=source_language,
             indexing_window_seconds=req.indexing_window_seconds,
@@ -216,7 +222,7 @@ def start(req: ProcessRequest) -> ProcessJob:
 
 
 @router.get("/status/{video_id}", response_model=ProcessJob)
-def status(video_id: str) -> ProcessJob:
+def status(video_id: VideoId) -> ProcessJob:
     job = jobs.get_job(video_id)
     if not job:
         raise HTTPException(404, "No job for this video.")

@@ -18,12 +18,16 @@ SOURCE_LANGUAGES = [
 PROCESS_REQUEST = {
     "video_id": "test-video",
     "filename": "match.mp4",
-    "blob_url": "https://example.test/videos/match.mp4",
+    "blob_url": "https://teststorage.blob.core.windows.net/videos/match.mp4",
 }
 
 
 class VideoIndexerLanguageTests(unittest.TestCase):
     def setUp(self):
+        for name, value in (("azure_storage_account", "teststorage"), ("azure_storage_videos_container", "videos")):
+            setting = patch.object(indexing.settings, name, value)
+            setting.start()
+            self.addCleanup(setting.stop)
         video_indexer.get_source_languages.cache_clear()
         self.addCleanup(video_indexer.get_source_languages.cache_clear)
         app = FastAPI()
