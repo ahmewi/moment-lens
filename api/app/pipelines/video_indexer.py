@@ -1,4 +1,4 @@
-"""Video Indexer (Option 1) ingestion pipeline.
+"""Video Indexer ingestion pipeline.
 
 Uses the ARM-based VI account: AAD token -> generateAccessToken -> classic VI REST.
 Docs: https://learn.microsoft.com/azure/azure-video-indexer/video-indexer-use-apis
@@ -348,7 +348,6 @@ def insights_to_scene_cards(
             id=f"{video_id}-vi-{int(start*1000)}-{int(end*1000)}",
             video_id=video_id,
             filename=filename,
-            option="option1",
             start_seconds=start,
             end_seconds=end,
             duration_seconds=end - start,
@@ -372,7 +371,7 @@ def process_video(video_id: str, filename: str, blob_url: str,
                   on_stage: Any = None,
                   source_language: str | None = None,
                   indexing_window_seconds: int = 0) -> dict[str, Any]:
-    """End-to-end Option 1 pipeline. Returns a status dict with VI video id and counts."""
+    """End-to-end ingestion pipeline. Returns a status dict with VI video id and counts."""
     def _p(pct: int) -> None:
         if on_progress:
             try: on_progress(pct)
@@ -422,12 +421,12 @@ def process_video(video_id: str, filename: str, blob_url: str,
         _p(86)
         insights_url = upload_text(
             container=settings.azure_storage_insights_container,
-            blob_name=f"{video_id}/option1.json",
+            blob_name=f"{video_id}/insights.json",
             text=json.dumps(insights, ensure_ascii=False),
         )
 
         # PromptContent (GPT-augmented per-segment narratives) is written by
-        # vi-poller into insights/<vid>/option1-prompt.json when available.
+        # vi-poller into insights/<vid>/prompt-content.json when available.
         # Fetching it now is cheap (one blob GET) and skipping it just falls
         # back to per-shot enrich_scene LLM calls — no functional regression.
         prompt_content: dict[str, Any] | None = None
@@ -478,7 +477,7 @@ def process_video(video_id: str, filename: str, blob_url: str,
         embeddings = {c.id: vec for c, vec in zip(cards, vectors)}
         entity_embeddings = {c.id: vec for c, vec in zip(cards, entity_vectors)}
         _p(95)
-        upsert_scene_cards(settings.search_index_option1, cards,
+        upsert_scene_cards(settings.search_index, cards,
                            embeddings=embeddings, entity_embeddings=entity_embeddings)
         upload_text(settings.azure_storage_insights_container, f"{video_id}/events.json",
                 json.dumps(manifest, ensure_ascii=False))
@@ -507,15 +506,11 @@ def process_video(video_id: str, filename: str, blob_url: str,
     finally:
         try:
             record_pipeline_run(
-                option="option1",
                 content_type=content_type,
                 duration_seconds=duration_s,
                 latency_seconds=time.time() - started_at,
                 scene_count=scene_count,
                 status=status_label,
-                chunked=False,
-                chunk_count=0,
-                use_custom_analyzer=False,
                 estimated_cost_usd=cost_usd,
             )
         except Exception as e:  # noqa: BLE001

@@ -101,13 +101,12 @@ export default function App() {
       <main style={{ flex: 1, overflow: "auto" }}>
         <Routes>
           <Route path="/" element={<Navigate to="/video-indexer" replace />} />
-          <Route path="/option1" element={<Navigate to="/video-indexer" replace />} />
           <Route path="/video-indexer" element={
-            <PipelinePage option="option1" title="Find moments"
+            <PipelinePage title="Find moments"
               blurb="Advanced video insights, frame evidence, and hybrid search to find and validate match moments." />
           } />
           <Route path="/index-video" element={<div style={{ padding: 24, maxWidth: 900, margin: "0 auto" }}>
-            <UploadPane option="option1" onIndexed={videoId => nav(`/video-indexer?video=${encodeURIComponent(videoId)}`)} />
+            <UploadPane onIndexed={videoId => nav(`/video-indexer?video=${encodeURIComponent(videoId)}`)} />
           </div>} />
           <Route path="/library" element={<LibraryPage />} />
           <Route path="*" element={<Navigate to="/video-indexer" replace />} />

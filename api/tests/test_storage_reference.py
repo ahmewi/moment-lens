@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from app import storage
 from app.config import settings
-from app.routers import option1, upload, videos
+from app.routers import indexing, upload, videos
 
 
 class StorageReferenceTests(unittest.TestCase):
@@ -47,7 +47,7 @@ class StorageReferenceTests(unittest.TestCase):
         self.addCleanup(service.stop)
         app = FastAPI()
         app.include_router(upload.router, prefix="/api/upload")
-        app.include_router(option1.router, prefix="/api/option1")
+        app.include_router(indexing.router, prefix="/api/indexing")
         self.client = TestClient(app)
         self.addCleanup(self.client.close)
         self.url = "https://teststorage.blob.core.windows.net/videos/existing/match.mp4"
@@ -69,20 +69,18 @@ class StorageReferenceTests(unittest.TestCase):
 
     def test_reference_can_start_vi_without_upload_stage(self):
         reference = self.reference().json()
-        for option, router in (("option1", option1),):
-            with (
-                self.subTest(option=option),
-                patch.object(router, "ensure_indexes"),
-                patch.object(router.jobs, "run_async", return_value={
-                    "video_id": reference["video_id"], "option": option, "status": "submitted",
-                }) as run,
-                patch.object(router, "process_video") as process,
-            ):
-                response = self.client.post(f"/api/{option}/process", json=reference)
-                self.assertEqual(response.status_code, 200)
-                self.assertEqual(run.call_args.kwargs["initial_stages"]["upload"], "skipped")
-                run.call_args.kwargs["target"](Mock(), Mock(), Mock())
-                self.assertEqual(process.call_args.args[2], self.url)
+        with (
+            patch.object(indexing, "ensure_indexes"),
+            patch.object(indexing.jobs, "run_async", return_value={
+                "video_id": reference["video_id"], "status": "submitted",
+            }) as run,
+            patch.object(indexing, "process_video") as process,
+        ):
+            response = self.client.post("/api/indexing/process", json=reference)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(run.call_args.kwargs["initial_stages"]["upload"], "skipped")
+            run.call_args.kwargs["target"](Mock(), Mock(), Mock())
+            self.assertEqual(process.call_args.args[2], self.url)
 
     def test_signed_url_is_canonicalized_without_retaining_credentials(self):
         response = self.reference(self.url + "?sv=2025-01-05&sig=test-secret&se=expired")
@@ -214,33 +212,22 @@ class StorageReferenceTests(unittest.TestCase):
 
 
 class StorageReferenceCleanupTests(unittest.TestCase):
-    def test_library_queries_only_vi_and_defaults_scenes_to_vi(self):
+    def test_library_queries_the_moments_index(self):
         client = Mock()
         client.search.return_value = []
         with patch.object(videos, "search_client", return_value=client) as factory:
             self.assertEqual(videos.list_videos()["items"], [])
-            factory.assert_called_once_with(settings.search_index_option1)
+            factory.assert_called_once_with(settings.search_index)
             factory.reset_mock()
-            self.assertEqual(videos.list_scenes("example")["option"], "option1")
-            factory.assert_called_once_with(settings.search_index_option1)
+            self.assertEqual(videos.list_scenes("example"), {"video_id": "example", "count": 0, "items": []})
+            factory.assert_called_once_with(settings.search_index)
 
-    def test_public_api_does_not_expose_content_understanding(self):
+    def test_health_reports_the_search_index(self):
         from app.main import app
 
-        paths = app.openapi()["paths"]
-        self.assertIn("/api/option1/process", paths)
-        self.assertFalse(any(path.startswith("/api/option2") for path in paths))
+        self.assertIn("/api/indexing/process", app.openapi()["paths"])
         with TestClient(app) as client:
-            self.assertNotIn("option2", client.get("/api/health").json()["indexes"])
-
-    def test_search_request_rejects_cu(self):
-        from pydantic import ValidationError
-
-        from app.models import SearchRequest
-
-        self.assertEqual(SearchRequest(query="goal").option, "option1")
-        with self.assertRaises(ValidationError):
-            SearchRequest(query="goal", option="option2")
+            self.assertEqual(client.get("/api/health").json()["index"], settings.search_index)
 
     def test_cleanup_keeps_referenced_and_shared_sources(self):
         source = "https://teststorage.blob.core.windows.net/videos/original/match.mp4"

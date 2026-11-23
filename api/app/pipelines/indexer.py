@@ -43,7 +43,6 @@ def _build_index(name: str) -> SearchIndex:
         SimpleField(name="id", type=SearchFieldDataType.String, key=True, filterable=True),
         SimpleField(name="video_id", type=SearchFieldDataType.String, filterable=True, facetable=True),
         SearchableField(name="filename", type=SearchFieldDataType.String, filterable=True, facetable=True),
-        SimpleField(name="option", type=SearchFieldDataType.String, filterable=True, facetable=True),
         SimpleField(name="start_seconds", type=SearchFieldDataType.Double, filterable=True, sortable=True),
         SimpleField(name="end_seconds", type=SearchFieldDataType.Double, filterable=True, sortable=True),
         SimpleField(name="duration_seconds", type=SearchFieldDataType.Double, filterable=True, sortable=True),
@@ -170,7 +169,7 @@ def ensure_indexes() -> None:
         client = search_index_client()
         desired_collection_fields = {"labels", "entities", "speakers"}
         required_fields = {"entity_vector", "content_type"}  # added in v2
-        for name in (settings.search_index_option1,):
+        for name in (settings.search_index,):
             log.info("Ensuring search index '%s'", name)
             try:
                 existing = client.get_index(name)

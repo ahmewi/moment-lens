@@ -5,12 +5,11 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-PipelineOption = Literal["option1"]
 ProcessingStatus = Literal["uploaded", "submitted", "processing", "indexed", "failed"]
 
-StageName = Literal["upload", "transcode", "split", "analyze"]
+StageName = Literal["upload", "analyze"]
 StageStatus = Literal["pending", "running", "completed", "failed", "skipped"]
-STAGE_ORDER: tuple[StageName, ...] = ("upload", "transcode", "split", "analyze")
+STAGE_ORDER: tuple[StageName, ...] = ("upload", "analyze")
 
 
 class StageInfo(BaseModel):
@@ -18,7 +17,7 @@ class StageInfo(BaseModel):
     name: StageName
     status: StageStatus = "pending"
     progress: int = 0           # 0..100 within this stage
-    detail: str = ""            # e.g. "chunk 3/12", "ffmpeg @ 240s"
+    detail: str = ""            # e.g. "indexing", "frame review 3/12"
     started_at: Optional[str] = None  # ISO8601
     updated_at: Optional[str] = None  # ISO8601
     error: Optional[str] = None
@@ -106,21 +105,16 @@ class VideoIndexerLanguage(BaseModel):
 
 class ProcessJob(BaseModel):
     video_id: str
-    option: PipelineOption
     status: ProcessingStatus
     job_ref: Optional[str] = None  # provider-specific job/asset id
     progress: int = 0  # 0-100
     error: Optional[str] = None
     insights_url: Optional[str] = None  # blob URL of stored insights JSON
-    # Human-readable phase ("splitting", "analyzing chunk 3/12", "indexing", ...).
+    # Human-readable phase ("indexing", "reviewing frames", ...).
     # Used by the UI to surface what the pipeline is currently doing.
     stage: Optional[str] = None
-    # Splitter Container Apps Job execution name (Option 2 only) — surfaced in
-    # error messages so users can grep CAE logs when a chunked run fails.
-    splitter_execution: Optional[str] = None
-    # Per-file lifecycle stages (Upload → Transcode → Split → Analyze).
-    # Each pipeline updates only the stages that apply to its option; stages
-    # that don't apply stay status="skipped".
+    # Per-file lifecycle stages (Upload → Analyze). Stages that don't apply
+    # (for example Upload for a video already in storage) stay status="skipped".
     stages: list[StageInfo] = Field(default_factory=list)
 
 
@@ -129,7 +123,6 @@ class SceneCard(BaseModel):
     id: str
     video_id: str
     filename: str
-    option: PipelineOption
     start_seconds: float
     end_seconds: float
     duration_seconds: float
@@ -153,7 +146,6 @@ class SearchFilters(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str
-    option: PipelineOption = "option1"
     event_kind: Optional[str] = Field(default=None, max_length=64)
     top: int = Field(default=5, ge=1, le=20)
     clip_duration_seconds: int = Field(default=15, ge=5, le=60)
@@ -215,7 +207,6 @@ class DeepSearchStats(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    option: PipelineOption
     query: str
     count: int
     items: list[SearchResultItem]

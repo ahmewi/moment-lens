@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.models import ProcessJob
 from app.pipelines import video_indexer
-from app.routers import option1
+from app.routers import indexing
 
 
 def instance(start, end):
@@ -178,7 +178,7 @@ class SceneCardWriteTests(unittest.TestCase):
     def test_batches_are_bounded_and_per_document_failures_are_errors(self):
         from app.models import SceneCard
         from app.pipelines import indexer
-        cards = [SceneCard(id=f"card-{number}", video_id="video", filename="match.mp4", option="option1",
+        cards = [SceneCard(id=f"card-{number}", video_id="video", filename="match.mp4",
                            start_seconds=number, end_seconds=number + 1, duration_seconds=1,
                            blob_url="https://example.test/video") for number in range(101)]
         client = Mock()
@@ -256,7 +256,7 @@ class VideoIndexerVisualEnrichmentTests(unittest.TestCase):
 class VideoIndexerWindowRequestTests(unittest.TestCase):
     def setUp(self):
         app = FastAPI()
-        app.include_router(option1.router, prefix="/api/option1")
+        app.include_router(indexing.router, prefix="/api/indexing")
         self.client = TestClient(app)
         self.addCleanup(self.client.close)
         self.request = {
@@ -269,13 +269,13 @@ class VideoIndexerWindowRequestTests(unittest.TestCase):
                                  ({"indexing_window_seconds": 30}, 30)):
             with (
                 self.subTest(fields=fields),
-                patch.object(option1, "ensure_indexes"),
-                patch.object(option1.jobs, "run_async", return_value=ProcessJob(
-                    video_id="test-video", option="option1", status="submitted",
+                patch.object(indexing, "ensure_indexes"),
+                patch.object(indexing.jobs, "run_async", return_value=ProcessJob(
+                    video_id="test-video", status="submitted",
                 )) as run,
-                patch.object(option1, "process_video") as process,
+                patch.object(indexing, "process_video") as process,
             ):
-                response = self.client.post("/api/option1/process", json={**self.request, **fields})
+                response = self.client.post("/api/indexing/process", json={**self.request, **fields})
                 self.assertEqual(response.status_code, 200)
                 run.call_args.kwargs["target"](Mock(), Mock(), Mock())
                 self.assertEqual(process.call_args.kwargs["indexing_window_seconds"], expected)
@@ -284,11 +284,11 @@ class VideoIndexerWindowRequestTests(unittest.TestCase):
         for size in (-1, 5, 25, 60, "20", "invalid", None):
             with (
                 self.subTest(size=size),
-                patch.object(option1, "ensure_indexes") as indexes,
-                patch.object(option1.jobs, "run_async") as run,
+                patch.object(indexing, "ensure_indexes") as indexes,
+                patch.object(indexing.jobs, "run_async") as run,
             ):
                 response = self.client.post(
-                    "/api/option1/process", json={**self.request, "indexing_window_seconds": size},
+                    "/api/indexing/process", json={**self.request, "indexing_window_seconds": size},
                 )
                 self.assertEqual(response.status_code, 422)
                 indexes.assert_not_called()

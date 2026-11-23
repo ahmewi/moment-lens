@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Dropdown, Field, Option, Subtitle1, Text, tokens, makeStyles } from "@fluentui/react-components";
 import { useSearchParams } from "react-router-dom";
-import type { PipelineOption, SceneItem, SearchResponse, SearchResultItem, VideoEvent, VideoLibraryItem } from "../api";
+import type { SceneItem, SearchResponse, SearchResultItem, VideoEvent, VideoLibraryItem } from "../api";
 import { listScenes, listVideos } from "../api";
 import QueryPane from "../components/QueryPane";
 import ResultsList from "../components/ResultsList";
@@ -9,7 +9,6 @@ import ViVideoExperience from "../components/ViVideoExperience";
 import SceneList from "../components/SceneList";
 
 interface Props {
-  option: PipelineOption;
   title: string;
   blurb: string;
 }
@@ -43,7 +42,7 @@ function describeResults(r: SearchResponse): string {
   return `${shown} moments (${kind}): ${deep.tagged} tagged + ${deep.recovered} found by deep search \u00b7 ${deep.frames_checked} clips checked against frames.${cut}`;
 }
 
-export default function PipelinePage({ option, title }: Props) {
+export default function PipelinePage({ title }: Props) {
   const cls = useStyles();
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [selected, setSelected] = useState<SearchResultItem | null>(null);
@@ -66,26 +65,26 @@ export default function PipelinePage({ option, title }: Props) {
     if (!requestedVideo) return;
     let canceled = false;
     setSceneError(""); setSelected(null); setScenes([]); setScenesLoading(true);
-    listScenes(requestedVideo, option).then(response => {
+    listScenes(requestedVideo).then(response => {
       if (canceled) return;
       if (response.items[0]) pickScene(response.items[0]);
       else setSceneError("No searchable scenes for this video.");
     }).catch(reason => { if (!canceled) setSceneError(String(reason)); })
       .finally(() => { if (!canceled) setScenesLoading(false); });
     return () => { canceled = true; };
-  }, [requestedVideo, option]);
+  }, [requestedVideo]);
 
   // Whenever the selected result changes to a different video, fetch its scene list.
   useEffect(() => {
     if (!selected) { setScenes([]); return; }
     let canceled = false;
     setScenesLoading(true);
-    listScenes(selected.video_id, option)
+    listScenes(selected.video_id)
       .then((r) => { if (!canceled) setScenes(r.items); })
       .catch(reason => { if (!canceled) { setScenes([]); setSceneError(String(reason)); } })
       .finally(() => { if (!canceled) setScenesLoading(false); });
     return () => { canceled = true; };
-  }, [selected?.video_id, option]);
+  }, [selected?.video_id]);
 
   function pickScene(s: SceneItem) {
     // Reframe the player to the clicked scene's window.
@@ -126,7 +125,7 @@ export default function PipelinePage({ option, title }: Props) {
           {videos.map(video => <Option key={video.video_id} value={video.video_id}>{video.filename}</Option>)}
         </Dropdown></Field>
         {sceneError && <Text role="alert" style={{ color: tokens.colorPaletteRedForeground1 }}>{sceneError}</Text>}
-        <QueryPane option={option} videoId={requestedVideo ?? undefined} availableFacets={results?.facets} onResults={(r) => { setResults(r); if (r.items[0]) setSelected(r.items[0]); }} />
+        <QueryPane videoId={requestedVideo ?? undefined} availableFacets={results?.facets} onResults={(r) => { setResults(r); if (r.items[0]) setSelected(r.items[0]); }} />
         {results && (
           <Text size={200} className={cls.meta}>{describeResults(results)}</Text>
         )}
@@ -134,7 +133,7 @@ export default function PipelinePage({ option, title }: Props) {
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
         <ViVideoExperience item={selected} onPickEvent={pickEvent} onTimeUpdate={setCurrentTime}
-          onEnriched={() => selected && listScenes(selected.video_id, option).then(response => setScenes(response.items)).catch(reason => setSceneError(String(reason)))} />
+          onEnriched={() => selected && listScenes(selected.video_id).then(response => setScenes(response.items)).catch(reason => setSceneError(String(reason)))} />
         {selected && (
           <SceneList
             scenes={scenes}

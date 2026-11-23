@@ -4,11 +4,10 @@ import {
   Dropdown, Option, RadioGroup, Radio, tokens,
 } from "@fluentui/react-components";
 import { Search24Regular, Filter24Regular, Dismiss12Regular, Settings24Regular } from "@fluentui/react-icons";
-import type { FacetValue, PipelineOption, SearchFilters, SearchResponse } from "../api";
+import type { FacetValue, SearchFilters, SearchResponse } from "../api";
 import { getContentProfiles, search } from "../api";
 
 interface Props {
-  option: PipelineOption;
   onResults: (r: SearchResponse) => void;
   defaultQuery?: string;
   videoId?: string;
@@ -41,7 +40,7 @@ const FACET_TARGET: Record<string, keyof SearchFilters> = {
   // filename is informational only (not a filterable field on the index)
 };
 
-export default function QueryPane({ option, onResults, defaultQuery = "", availableFacets, videoId }: Props) {
+export default function QueryPane({ onResults, defaultQuery = "", availableFacets, videoId }: Props) {
   const cls = useStyles();
   const [q, setQ] = useState(defaultQuery);
   const [top, setTop] = useState(5);
@@ -90,7 +89,7 @@ export default function QueryPane({ option, onResults, defaultQuery = "", availa
         labels: filters.labels?.length ? filters.labels : undefined,
       };
       const r = await search({
-        query: q, option, top, clip_duration_seconds: duration, mode, filters: cleaned, event_kind: eventKind || undefined,
+        query: q, top, clip_duration_seconds: duration, mode, filters: cleaned, event_kind: eventKind || undefined,
         visual_rerank_enabled: visualRerankEnabled,
         visual_rerank_max_candidates: visualMaxCandidates,
         visual_rerank_frames: visualFrames || undefined,

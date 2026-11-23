@@ -9,9 +9,9 @@ Behaviour:
     the API survive App Service restarts and run with multiple workers without
     losing visibility into in-flight or recently completed jobs.
 
-Schema (one row per (video_id, option)):
+Schema (one row per video):
   PartitionKey = video_id
-  RowKey       = option ("option1" | "option2")
+  RowKey       = "job"
   + every other ProcessJob field, JSON-strings for None where needed.
 
 Failures talking to the table are logged and swallowed — the in-memory state
@@ -30,7 +30,6 @@ from typing import Any, Callable
 from app.config import settings
 from app.models import (
     STAGE_ORDER,
-    PipelineOption,
     ProcessingStatus,
     ProcessJob,
     StageInfo,
@@ -40,7 +39,9 @@ from app.models import (
 
 log = logging.getLogger(__name__)
 
-_jobs: dict[tuple[str, PipelineOption], ProcessJob] = {}
+_ROW_KEY = "job"
+
+_jobs: dict[str, ProcessJob] = {}
 _lock = threading.Lock()
 _table_loaded = False
 _table_load_lock = threading.Lock()
@@ -84,14 +85,13 @@ def _table():
 def _job_to_entity(job: ProcessJob) -> dict[str, Any]:
     return {
         "PartitionKey": job.video_id,
-        "RowKey": job.option,
+        "RowKey": _ROW_KEY,
         "status": job.status,
         "job_ref": job.job_ref or "",
         "progress": int(job.progress),
         "error": (job.error or "")[:32000],  # Table string column max
         "insights_url": job.insights_url or "",
         "stage": job.stage or "",
-        "splitter_execution": job.splitter_execution or "",
         "stages_json": json.dumps([s.model_dump() for s in job.stages])[:32000],
     }
 
@@ -109,14 +109,12 @@ def _entity_to_job(e: dict[str, Any]) -> ProcessJob:
         stages = []
     return ProcessJob(
         video_id=e["PartitionKey"],
-        option=e["RowKey"],
         status=e.get("status") or "uploaded",
         job_ref=e.get("job_ref") or None,
         progress=int(e.get("progress") or 0),
         error=e.get("error") or None,
         insights_url=e.get("insights_url") or None,
         stage=e.get("stage") or None,
-        splitter_execution=e.get("splitter_execution") or None,
         stages=stages,
     )
 
@@ -128,7 +126,7 @@ def _persist(job: ProcessJob) -> None:
     try:
         tc.upsert_entity(_job_to_entity(job))
     except Exception as e:  # noqa: BLE001
-        log.warning("Job upsert failed for (%s, %s): %s", job.video_id, job.option, e)
+        log.warning("Job upsert failed for %s: %s", job.video_id, e)
 
 
 def _delete_persisted(video_id: str) -> None:
@@ -136,11 +134,7 @@ def _delete_persisted(video_id: str) -> None:
     if tc is None:
         return
     try:
-        for opt in ("option1",):
-            try:
-                tc.delete_entity(partition_key=video_id, row_key=opt)
-            except Exception:
-                pass
+        tc.delete_entity(partition_key=video_id, row_key=_ROW_KEY)
     except Exception as e:  # noqa: BLE001
         log.warning("Job delete failed for %s: %s", video_id, e)
 
@@ -161,11 +155,11 @@ def _load_table_into_cache() -> None:
             count = 0
             with _lock:
                 for e in tc.list_entities():
-                    if e.get("RowKey") != "option1":
+                    if e.get("RowKey") != _ROW_KEY:
                         continue
                     try:
                         job = _entity_to_job(e)
-                        _jobs[(job.video_id, job.option)] = job
+                        _jobs[job.video_id] = job
                         count += 1
                     except Exception as ex:  # noqa: BLE001
                         log.warning("Skipping malformed job entity: %s", ex)
@@ -178,10 +172,10 @@ def _load_table_into_cache() -> None:
 
 # ── Public API ──────────────────────────────────────────────────────────
 
-def get_job(video_id: str, option: PipelineOption) -> ProcessJob | None:
+def get_job(video_id: str) -> ProcessJob | None:
     _load_table_into_cache()
     with _lock:
-        return _jobs.get((video_id, option))
+        return _jobs.get(video_id)
 
 
 def list_jobs() -> list[ProcessJob]:
@@ -191,25 +185,22 @@ def list_jobs() -> list[ProcessJob]:
 
 
 def clear_video(video_id: str) -> int:
-    """Remove all job entries for a given video (memory + table). Returns count removed."""
+    """Remove the job entry for a given video (memory + table). Returns the number removed."""
     _load_table_into_cache()
     with _lock:
-        keys = [k for k in _jobs if k[0] == video_id]
-        for k in keys:
-            _jobs.pop(k, None)
+        removed = 1 if _jobs.pop(video_id, None) is not None else 0
     _delete_persisted(video_id)
-    return len(keys)
+    return removed
 
 
-def update(video_id: str, option: PipelineOption, **changes) -> ProcessJob:
+def update(video_id: str, **changes) -> ProcessJob:
     _load_table_into_cache()
     with _lock:
-        key = (video_id, option)
-        job = _jobs.get(key) or ProcessJob(video_id=video_id, option=option, status="uploaded")
+        job = _jobs.get(video_id) or ProcessJob(video_id=video_id, status="uploaded")
         data = job.model_dump()
         data.update(changes)
         job = ProcessJob(**data)
-        _jobs[key] = job
+        _jobs[video_id] = job
     _persist(job)
     return job
 
@@ -218,11 +209,7 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def init_stages(
-    video_id: str,
-    option: PipelineOption,
-    initial: dict[StageName, StageStatus],
-) -> ProcessJob:
+def init_stages(video_id: str, initial: dict[StageName, StageStatus]) -> ProcessJob:
     """Create a fresh ordered stage list. `initial` maps stage → starting status.
     Stages not in `initial` default to "pending"."""
     now = _now_iso()
@@ -236,12 +223,11 @@ def init_stages(
         )
         for n in STAGE_ORDER
     ]
-    return update(video_id, option, stages=stages)
+    return update(video_id, stages=stages)
 
 
 def set_stage(
     video_id: str,
-    option: PipelineOption,
     name: StageName,
     *,
     status: StageStatus | None = None,
@@ -254,8 +240,7 @@ def set_stage(
     _load_table_into_cache()
     now = _now_iso()
     with _lock:
-        key = (video_id, option)
-        job = _jobs.get(key) or ProcessJob(video_id=video_id, option=option, status="uploaded")
+        job = _jobs.get(video_id) or ProcessJob(video_id=video_id, status="uploaded")
         stages = list(job.stages) if job.stages else [
             StageInfo(name=n) for n in STAGE_ORDER
         ]
@@ -281,14 +266,13 @@ def set_stage(
         job_data = job.model_dump()
         job_data["stages"] = [s.model_dump() for s in stages]
         job = ProcessJob(**job_data)
-        _jobs[key] = job
+        _jobs[video_id] = job
     _persist(job)
     return job
 
 
 def run_async(
     video_id: str,
-    option: PipelineOption,
     target: Callable[..., dict],
     initial_status: ProcessingStatus = "submitted",
     pass_progress_callback: bool = False,
@@ -300,45 +284,44 @@ def run_async(
     arguments:
       * `on_progress: Callable[[int], None]` — incremental percent (clamped 15..95).
       * `on_status:   Callable[..., None]`   — sets arbitrary ProcessJob fields
-        (e.g. `stage="analyzing chunks"`, `splitter_execution="..."`).
+        (currently `stage` and `job_ref`).
       * `on_stage:    Callable[..., None]`   — update one stage; signature
         `on_stage(name, status=None, progress=None, detail=None, error=None)`.
 
     `initial_stages` seeds the per-file stepper. Stages omitted default to
-    "pending". Typical option2 usage:
-      `initial_stages={"upload": "completed", "transcode": "skipped",
-                       "split": "pending", "analyze": "pending"}`
+    "pending". Typical usage:
+      `initial_stages={"upload": "completed", "analyze": "pending"}`
     """
     if initial_stages:
-        init_stages(video_id, option, initial_stages)
-    job = update(video_id, option, status=initial_status, progress=10, error=None, stage=None, splitter_execution=None)
+        init_stages(video_id, initial_stages)
+    job = update(video_id, status=initial_status, progress=10, error=None, stage=None)
 
     def _on_progress(pct: int) -> None:
         clamped = max(15, min(95, int(pct)))
-        update(video_id, option, status="processing", progress=clamped)
+        update(video_id, status="processing", progress=clamped)
 
     def _on_status(**fields) -> None:
-        allowed = {"stage", "splitter_execution", "job_ref"}
+        allowed = {"stage", "job_ref"}
         clean = {k: v for k, v in fields.items() if k in allowed}
         if clean:
-            update(video_id, option, **clean)
+            update(video_id, **clean)
 
     def _on_stage(name: StageName, **fields) -> None:
         try:
-            set_stage(video_id, option, name, **fields)
+            set_stage(video_id, name, **fields)
         except Exception as e:  # noqa: BLE001
             log.warning("on_stage(%s) failed: %s", name, e)
 
     def _runner() -> None:
         try:
-            update(video_id, option, status="processing", progress=15)
+            update(video_id, status="processing", progress=15)
             if pass_progress_callback:
                 result = target(on_progress=_on_progress, on_status=_on_status, on_stage=_on_stage)
             else:
-                update(video_id, option, status="processing", progress=40)
+                update(video_id, status="processing", progress=40)
                 result = target()
             update(
-                video_id, option,
+                video_id,
                 status="indexed",
                 progress=100,
                 insights_url=result.get("insights_url"),
@@ -346,7 +329,7 @@ def run_async(
             )
             # Mark the analyze stage completed if the pipeline didn't already.
             try:
-                j = _jobs.get((video_id, option))
+                j = _jobs.get(video_id)
                 if j:
                     last_unfinished = next(
                         (s.name for s in reversed(j.stages)
@@ -354,27 +337,27 @@ def run_async(
                         None,
                     )
                     if last_unfinished:
-                        set_stage(video_id, option, last_unfinished, status="completed")
+                        set_stage(video_id, last_unfinished, status="completed")
             except Exception:  # noqa: BLE001
                 pass
-            log.info("Pipeline %s completed for %s: %s", option, video_id, result)
+            log.info("Pipeline completed for %s: %s", video_id, result)
         except Exception as e:  # noqa: BLE001
-            log.exception("Pipeline %s failed for %s", option, video_id)
+            log.exception("Pipeline failed for %s", video_id)
             err = f"{type(e).__name__}: {e}\n{traceback.format_exc()[-500:]}"
-            update(video_id, option, status="failed", progress=0, error=err)
+            update(video_id, status="failed", progress=0, error=err)
             # Mark the first non-completed stage as failed for the stepper.
             try:
-                j = _jobs.get((video_id, option))
+                j = _jobs.get(video_id)
                 if j:
                     first_open = next(
                         (s.name for s in j.stages if s.status in ("pending", "running")),
                         None,
                     )
                     if first_open:
-                        set_stage(video_id, option, first_open, status="failed", error=str(e))
+                        set_stage(video_id, first_open, status="failed", error=str(e))
             except Exception:  # noqa: BLE001
                 pass
 
-    t = threading.Thread(target=_runner, daemon=True, name=f"pipe-{option}-{video_id}")
+    t = threading.Thread(target=_runner, daemon=True, name=f"pipe-{video_id}")
     t.start()
     return job

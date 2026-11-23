@@ -84,7 +84,7 @@ def read_video_json(video_id: str, filename: str) -> dict | None:
 
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", video_id):
         raise ValueError("Invalid video id")
-    if filename not in ("option1.json", "events.json"):
+    if filename not in ("insights.json", "events.json"):
         raise ValueError("Unsupported metadata file")
     blob = blob_service().get_container_client(settings.azure_storage_insights_container).get_blob_client(f"{video_id}/{filename}")
     try:

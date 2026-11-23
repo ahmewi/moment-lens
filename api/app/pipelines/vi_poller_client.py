@@ -170,7 +170,7 @@ def _read_status(video_id: str) -> dict[str, Any] | None:
 def read_insights(video_id: str) -> dict[str, Any]:
     """Fetch the persisted VI Index JSON for a completed video."""
     cc = blob_service().get_container_client(settings.azure_storage_insights_container)
-    data = cc.get_blob_client(f"{video_id}/option1.json").download_blob().readall()
+    data = cc.get_blob_client(f"{video_id}/insights.json").download_blob().readall()
     return json.loads(data)
 
 
@@ -183,7 +183,7 @@ def read_prompt_content(video_id: str) -> dict[str, Any] | None:
     """
     cc = blob_service().get_container_client(settings.azure_storage_insights_container)
     try:
-        data = cc.get_blob_client(f"{video_id}/option1-prompt.json").download_blob().readall()
+        data = cc.get_blob_client(f"{video_id}/prompt-content.json").download_blob().readall()
     except ResourceNotFoundError:
         return None
     except Exception as e:  # noqa: BLE001

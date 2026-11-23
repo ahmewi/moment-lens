@@ -25,6 +25,7 @@ from typing import Any, NamedTuple
 from app.azure_clients import blob_service, search_client
 from app.config import settings
 from app.models import SceneCard
+from app.odata import quote
 from app.pipelines.event_enrichment import build_manifest, event_prompt, first_view_events, parse_events, profile_for, read_video_json
 from app.pipelines.openai_helpers import _completion_params, _judge_target, embed_texts
 from app.storage import extract_window_frames, make_sas_url, upload_text
@@ -51,7 +52,7 @@ _RETRYABLE = re.compile(r"Error code: (429|5\d\d)")
 _VISUAL_PREFIX_RE = re.compile(r"^Visual: [^\n]*\n?")
 _BACKUP_BLOB = "{video_id}/pre-visual-enrich.json"
 _DOC_FIELDS = [
-    "id", "video_id", "filename", "option", "start_seconds", "end_seconds", "duration_seconds", "summary",
+    "id", "video_id", "filename", "start_seconds", "end_seconds", "duration_seconds", "summary",
     "transcript_excerpt", "labels", "entities", "ocr_text", "speakers", "thumbnail_url", "blob_url", "content_type",
 ]
 
@@ -184,7 +185,7 @@ def enrich_cards(cards: list[SceneCard], source_url: str, *, target=None, event_
 
 def _card_from_doc(doc: dict) -> SceneCard:
     return SceneCard(
-        id=doc["id"], video_id=doc["video_id"], filename=doc.get("filename") or "", option=doc.get("option") or "option1",
+        id=doc["id"], video_id=doc["video_id"], filename=doc.get("filename") or "",
         start_seconds=float(doc.get("start_seconds") or 0), end_seconds=float(doc.get("end_seconds") or 0),
         duration_seconds=float(doc.get("duration_seconds") or 0), summary=doc.get("summary") or "",
         transcript_excerpt=doc.get("transcript_excerpt") or "", labels=list(doc.get("labels") or []),
@@ -205,9 +206,9 @@ def _candidate_batches(client, cards: list[SceneCard], content_type: str, seen: 
     budget = settings.event_analysis_max_scenes
     by_id = {card.id: card for card in cards}
     positions = {card.id: index for index, card in enumerate(cards)}
-    query_filter = f"video_id eq '{cards[0].video_id}'"
+    query_filter = f"video_id eq '{quote(cards[0].video_id)}'"
     if seen:
-        excluded = "|".join(sorted(seen)).replace("'", "''")
+        excluded = quote("|".join(sorted(seen)))
         query_filter += f" and not search.in(id, '{excluded}', '|')"
     pools = [iter(list(islice(client.search(
         search_text=query, query_type="simple", search_mode="any",
@@ -371,14 +372,14 @@ def enrich_video_events(video_id: str, content_type: str, on_progress=None, on_s
                         scene_ids: list[str] | None = None) -> dict:
     if not profile_for(content_type):
         raise ValueError("No event extraction profile is configured")
-    raw = read_video_json(video_id, "option1.json")
+    raw = read_video_json(video_id, "insights.json")
     if not raw:
         raise ValueError("Native VI metadata is unavailable; index this video first")
     video = (raw.get("videos") or [{}])[0]
     vi_id = str(video.get("id") or raw.get("id") or "")
     if not vi_id:
         raise ValueError("VI video id is unavailable")
-    client = search_client(settings.search_index_option1)
+    client = search_client(settings.search_index)
     cards = sorted(_fetch_cards(client, video_id), key=lambda card: (card.start_seconds, card.id))
     if not cards:
         raise ValueError("No VI scenes are indexed for this video")
@@ -498,7 +499,7 @@ def _merge(client, cards: list[SceneCard], *, content_type: str | None = None) -
 
 
 def _fetch_cards(client, video_id: str) -> list[SceneCard]:
-    docs = client.search(search_text="*", filter=f"video_id eq '{video_id}'", select=_DOC_FIELDS)
+    docs = client.search(search_text="*", filter=f"video_id eq '{quote(video_id)}'", select=_DOC_FIELDS)
     return sorted((_card_from_doc(d) for d in docs), key=lambda c: c.start_seconds)
 
 
@@ -513,7 +514,7 @@ def backfill(video_id: str, *, index_name: str | None = None, apply: bool = Fals
     The first applied run stores the original summary/labels in insights/<video_id>/pre-visual-enrich.json so `restore` can undo
     it; later runs start again from that backup, so tags of an earlier run never pile up in the labels.
     """
-    index = index_name or settings.search_index_option1
+    index = index_name or settings.search_index
     client = search_client(index)
     cards = _fetch_cards(client, video_id)
     result = {"index": index, "cards": len(cards), "enriched": 0, "applied": False}
@@ -543,7 +544,7 @@ def backfill(video_id: str, *, index_name: str | None = None, apply: bool = Fals
 
 def restore(video_id: str, *, index_name: str | None = None) -> int:
     """Put the pre-enrichment summary/labels (and matching embeddings) back. Returns the number of cards restored."""
-    client = search_client(index_name or settings.search_index_option1)
+    client = search_client(index_name or settings.search_index)
     backup = json.loads(_backup_blob(video_id).download_blob().readall())
     cards = [c for c in _fetch_cards(client, video_id) if c.id in backup]
     for card in cards:

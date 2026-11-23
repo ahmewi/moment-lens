@@ -19,7 +19,7 @@ Inputs (env vars — set per execution by the API):
 Outputs (written under VIDEOS_CONTAINER/<VIDEO_ID>/):
     vi-status.json           Heartbeat: {status, state, processingProgress, vi_video_id, updated_at}
                              status ∈ submitting | running | Succeeded | Failed
-    Final VI Index JSON      Written to INSIGHTS_CONTAINER as <VIDEO_ID>/option1.json
+    Final VI Index JSON      Written to INSIGHTS_CONTAINER as <VIDEO_ID>/insights.json
                              on success.
 
 The API (vi_poller_client) reads vi-status.json + the Container Apps Job
@@ -60,8 +60,8 @@ POLL_INTERVAL_SECONDS = int(os.environ.get("POLL_INTERVAL_SECONDS", "30"))
 AZURE_CLIENT_ID = os.environ.get("AZURE_CLIENT_ID")
 
 STATUS_BLOB_NAME = f"{VIDEO_ID}/vi-status.json"
-INSIGHTS_BLOB_NAME = f"{VIDEO_ID}/option1.json"
-PROMPT_BLOB_NAME = f"{VIDEO_ID}/option1-prompt.json"
+INSIGHTS_BLOB_NAME = f"{VIDEO_ID}/insights.json"
+PROMPT_BLOB_NAME = f"{VIDEO_ID}/prompt-content.json"
 # When set, after Index Succeeded we trigger VI's GPT-augmented PromptContent
 # (per-segment narrative summaries). Free for Paid VI accounts within their
 # free tier; otherwise billed at the VI PromptContent rate. Toggle with

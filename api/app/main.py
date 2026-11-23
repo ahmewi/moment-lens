@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
-from app.routers import media, option1, search, upload, videos
+from app.routers import indexing, media, search, upload, videos
 from app.telemetry import configure as configure_telemetry
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -39,9 +39,7 @@ def health() -> dict:
         "status": "ok",
         "version": app.version,
         "region": settings.azure_location,
-        "indexes": {
-            "option1": settings.search_index_option1,
-        },
+        "index": settings.search_index,
     }
 
 
@@ -60,7 +58,7 @@ def config() -> dict:
 
 app.include_router(media.router,   prefix="/api/media",   tags=["media"])
 app.include_router(upload.router,  prefix="/api/upload",  tags=["upload"])
-app.include_router(option1.router, prefix="/api/option1", tags=["option1-vi"])
+app.include_router(indexing.router, prefix="/api/indexing", tags=["indexing"])
 app.include_router(search.router,  prefix="/api/search",  tags=["search"])
 app.include_router(videos.router,  prefix="/api/videos",  tags=["library"])
 

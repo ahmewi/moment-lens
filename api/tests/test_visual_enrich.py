@@ -14,7 +14,7 @@ from app.pipelines.event_enrichment import PROFILES, SOCCER_EVENTS, build_manife
 
 def make_card(id_="c1", start=0.0, end=30.0, summary="Original summary.", labels=None):
     return SceneCard(
-        id=id_, video_id="v1", filename="match.mp4", option="option1", start_seconds=start, end_seconds=end,
+        id=id_, video_id="v1", filename="match.mp4", start_seconds=start, end_seconds=end,
         duration_seconds=end - start, summary=summary, transcript_excerpt="talk", labels=["football"] if labels is None else labels,
         entities=[], ocr_text="", blob_url="https://acct.blob.core.windows.net/videos/v1/match.mp4",
     )
@@ -293,7 +293,7 @@ class BackfillTests(unittest.TestCase):
 
     def test_a_dry_run_reports_but_writes_nothing(self):
         result = ve.backfill("v1")
-        self.assertEqual(result, {"index": settings.search_index_option1, "cards": 2, "enriched": 2, "applied": False})
+        self.assertEqual(result, {"index": settings.search_index, "cards": 2, "enriched": 2, "applied": False})
         self.client.merge_or_upload_documents.assert_not_called()
         self.upload.assert_not_called()
 
@@ -331,7 +331,7 @@ class BackfillTests(unittest.TestCase):
 
     def test_a_video_without_cards_is_a_no_op(self):
         self.client.search.return_value = []
-        self.assertEqual(ve.backfill("v1", apply=True), {"index": settings.search_index_option1, "cards": 0, "enriched": 0, "applied": False})
+        self.assertEqual(ve.backfill("v1", apply=True), {"index": settings.search_index, "cards": 0, "enriched": 0, "applied": False})
 
     def test_restore_puts_the_original_text_back(self):
         enriched = [make_card("c1", summary="Visual: x\nOriginal summary.", labels=["yellow card", "football"])]
@@ -513,7 +513,7 @@ class EventEnrichmentWriteTests(unittest.TestCase):
                 "events_reviewed": True, "event_review_reason": "Original delivery precedes the replay."}
         client = Mock()
         client.merge_or_upload_documents.return_value = [Mock(succeeded=True)]
-        with (patch.object(ve, "read_video_json", side_effect=lambda video, name: {"id": "vi", "durationInSeconds": 60} if name == "option1.json" else previous),
+        with (patch.object(ve, "read_video_json", side_effect=lambda video, name: {"id": "vi", "durationInSeconds": 60} if name == "insights.json" else previous),
               patch.object(ve, "search_client", return_value=client), patch.object(ve, "_fetch_cards", return_value=cards),
               patch.object(ve, "make_sas_url", return_value="source"), patch.object(ve, "_judge_target", return_value=Mock()),
               patch.object(ve, "extract_window_frames", return_value=[b"frame"]) as extract,
@@ -551,7 +551,7 @@ class EventEnrichmentWriteTests(unittest.TestCase):
                "evidence": "A corner kick is taken in the original live view.", "presentation": "live", "scene_id": "target"}
         previous = {"content_type": "soccer_match", "status": "completed", "events": [old]}
         client = Mock()
-        with (patch.object(ve, "read_video_json", side_effect=lambda video, name: {"id": "vi"} if name == "option1.json" else previous),
+        with (patch.object(ve, "read_video_json", side_effect=lambda video, name: {"id": "vi"} if name == "insights.json" else previous),
               patch.object(ve, "search_client", return_value=client), patch.object(ve, "_fetch_cards", return_value=[card]),
               patch.object(ve, "make_sas_url", return_value="source"), patch.object(ve, "_judge_target", return_value=Mock()),
               patch.object(ve, "extract_window_frames", return_value=[]), patch.object(ve, "embed_texts") as embed,
@@ -589,7 +589,7 @@ class EventEnrichmentWriteTests(unittest.TestCase):
         info = {"description": "A goal is scored.", "events": [], "custom_events": earlier, "events_reviewed": True}
         client = Mock()
         client.merge_or_upload_documents.side_effect = lambda documents: [Mock(succeeded=True) for _ in documents]
-        with (patch.object(ve, "read_video_json", side_effect=lambda video, name: {"id": "vi-test"} if name == "option1.json" else previous),
+        with (patch.object(ve, "read_video_json", side_effect=lambda video, name: {"id": "vi-test"} if name == "insights.json" else previous),
               patch.object(ve, "search_client", return_value=client),
               patch.object(ve, "_fetch_cards", return_value=cards),
               patch.object(ve, "_candidate_batches", return_value=iter([[cards[0]]])),
@@ -622,7 +622,7 @@ class EventEnrichmentWriteTests(unittest.TestCase):
             stored.clear()
             stored.update(json.loads(text))
             return "https://example.test/manifest"
-        with (patch.object(ve, "read_video_json", side_effect=lambda video, name: raw if name == "option1.json" else dict(stored)),
+        with (patch.object(ve, "read_video_json", side_effect=lambda video, name: raw if name == "insights.json" else dict(stored)),
               patch.object(ve, "search_client", return_value=client),
               patch.object(ve, "_fetch_cards", return_value=cards),
               patch.object(ve, "make_sas_url", return_value="https://example.test/source"),
@@ -653,7 +653,7 @@ class EventEnrichmentWriteTests(unittest.TestCase):
 
     def test_empty_candidate_results_never_trigger_full_scan_or_embeddings(self):
         cards = [make_card()]
-        with (patch.object(ve, "read_video_json", side_effect=lambda video, name: {"id": "vi-test"} if name == "option1.json" else None),
+        with (patch.object(ve, "read_video_json", side_effect=lambda video, name: {"id": "vi-test"} if name == "insights.json" else None),
               patch.object(ve, "search_client", return_value=Mock()),
               patch.object(ve, "_fetch_cards", return_value=cards),
               patch.object(ve, "_candidate_batches", return_value=iter([])),
@@ -670,7 +670,7 @@ class EventEnrichmentWriteTests(unittest.TestCase):
 
     def test_failed_frame_validation_stays_retryable_without_claiming_review(self):
         card = make_card()
-        with (patch.object(ve, "read_video_json", side_effect=lambda video, name: {"id": "vi-test"} if name == "option1.json" else None),
+        with (patch.object(ve, "read_video_json", side_effect=lambda video, name: {"id": "vi-test"} if name == "insights.json" else None),
               patch.object(ve, "search_client", return_value=Mock()),
               patch.object(ve, "_fetch_cards", return_value=[card]),
               patch.object(ve, "_candidate_batches", return_value=iter([[card]])),

@@ -1,4 +1,3 @@
-export type PipelineOption = "option1";
 export type ViIndexingWindowSeconds = 0 | 20 | 30;
 
 export type ContentType =
@@ -52,18 +51,16 @@ export interface VideoIndexerLanguage {
 
 export interface ProcessJob {
   video_id: string;
-  option: PipelineOption;
   status: "uploaded" | "submitted" | "processing" | "indexed" | "failed";
   job_ref?: string | null;
   progress: number;
   error?: string | null;
   insights_url?: string | null;
   stage?: string | null;
-  splitter_execution?: string | null;
   stages?: StageInfo[];
 }
 
-export type StageName = "upload" | "transcode" | "split" | "analyze";
+export type StageName = "upload" | "analyze";
 export type StageStatus = "pending" | "running" | "completed" | "failed" | "skipped";
 
 export interface StageInfo {
@@ -125,7 +122,6 @@ export interface DeepSearchStats {
 }
 
 export interface SearchResponse {
-  option: PipelineOption;
   query: string;
   count: number;
   items: SearchResultItem[];
@@ -140,8 +136,7 @@ export interface VideoLibraryItem {
   video_id: string;
   filename: string;
   duration_seconds: number;
-  options: PipelineOption[];
-  scenes: Partial<Record<PipelineOption, number>>;
+  scenes: number;
   play_url: string;
   thumbnail_url?: string;
 }
@@ -256,19 +251,19 @@ export async function uploadVideo(file: File, onProgress?: (pct: number) => void
 }
 
 export function getViLanguages() {
-  return jsonReq<VideoIndexerLanguage[]>("/api/option1/languages");
+  return jsonReq<VideoIndexerLanguage[]>("/api/indexing/languages");
 }
 
-export function startProcess(option: PipelineOption, body: { video_id: string; filename: string; blob_url: string; content_type?: ContentType; source_language?: string; indexing_window_seconds?: ViIndexingWindowSeconds }) {
-  return jsonReq<ProcessJob>(`/api/${option}/process`, { method: "POST", body: JSON.stringify(body) });
+export function startProcess(body: { video_id: string; filename: string; blob_url: string; content_type?: ContentType; source_language?: string; indexing_window_seconds?: ViIndexingWindowSeconds }) {
+  return jsonReq<ProcessJob>("/api/indexing/process", { method: "POST", body: JSON.stringify(body) });
 }
 
-export function getStatus(option: PipelineOption, videoId: string) {
-  return jsonReq<ProcessJob>(`/api/${option}/status/${videoId}`);
+export function getStatus(videoId: string) {
+  return jsonReq<ProcessJob>(`/api/indexing/status/${encodeURIComponent(videoId)}`);
 }
 
 export function search(body: {
-  query: string; option: PipelineOption; top: number; clip_duration_seconds: number; mode?: string;
+  query: string; top: number; clip_duration_seconds: number; mode?: string;
   event_kind?: string;
   filters?: SearchFilters; visual_rerank_enabled?: boolean; visual_rerank_max_candidates?: number;
   visual_rerank_frames?: number;
@@ -276,21 +271,20 @@ export function search(body: {
   return jsonReq<SearchResponse>("/api/search", { method: "POST", body: JSON.stringify({ mode: "hybrid", ...body }) });
 }
 
-export function listVideos(option?: PipelineOption) {
-  const qs = option ? `?option=${option}` : "";
-  return jsonReq<{ count: number; items: VideoLibraryItem[] }>(`/api/videos${qs}`);
+export function listVideos() {
+  return jsonReq<{ count: number; items: VideoLibraryItem[] }>("/api/videos");
 }
 
 export function deleteVideo(videoId: string, purgeStorage = true) {
-  return jsonReq<{ video_id: string; search_deleted: Record<string, number>; blobs_deleted: number; errors: string[] }>(
+  return jsonReq<{ video_id: string; search_deleted: number; blobs_deleted: number; errors: string[] }>(
     `/api/videos/${encodeURIComponent(videoId)}?purge_storage=${purgeStorage}`,
     { method: "DELETE" },
   );
 }
 
-export function listScenes(videoId: string, option: PipelineOption = "option1") {
-  return jsonReq<{ video_id: string; option: PipelineOption; count: number; items: SceneItem[] }>(
-    `/api/videos/${encodeURIComponent(videoId)}/scenes?option=${option}`,
+export function listScenes(videoId: string) {
+  return jsonReq<{ video_id: string; count: number; items: SceneItem[] }>(
+    `/api/videos/${encodeURIComponent(videoId)}/scenes`,
   );
 }
 
@@ -341,11 +335,11 @@ export interface ViWidgetAccess {
 }
 
 export function getVideoEvents(videoId: string) {
-  return jsonReq<VideoEvents>(`/api/option1/events/${encodeURIComponent(videoId)}`);
+  return jsonReq<VideoEvents>(`/api/indexing/events/${encodeURIComponent(videoId)}`);
 }
 
 export function getContentProfiles() {
-  return jsonReq<{ items: { content_type: ContentType; name: string; events: Record<string, string> }[] }>("/api/option1/profiles");
+  return jsonReq<{ items: { content_type: ContentType; name: string; events: Record<string, string> }[] }>("/api/indexing/profiles");
 }
 
 export interface ProfileAnalysisPlan {
@@ -357,19 +351,19 @@ export interface ProfileAnalysisPlan {
 }
 
 export function getProfileAnalysisPlan(contentType: ContentType) {
-  return jsonReq<ProfileAnalysisPlan>(`/api/option1/profiles/${encodeURIComponent(contentType)}/analysis`);
+  return jsonReq<ProfileAnalysisPlan>(`/api/indexing/profiles/${encodeURIComponent(contentType)}/analysis`);
 }
 
 export function analyzeContentProfile(contentType: ContentType) {
-  return jsonReq<ProfileAnalysisPlan & { job: ProcessJob | null }>(`/api/option1/profiles/${encodeURIComponent(contentType)}/enrich`, { method: "POST" });
+  return jsonReq<ProfileAnalysisPlan & { job: ProcessJob | null }>(`/api/indexing/profiles/${encodeURIComponent(contentType)}/enrich`, { method: "POST" });
 }
 
 export function getViWidgetAccess(videoId: string) {
-  return jsonReq<ViWidgetAccess>(`/api/option1/widgets/${encodeURIComponent(videoId)}`);
+  return jsonReq<ViWidgetAccess>(`/api/indexing/widgets/${encodeURIComponent(videoId)}`);
 }
 
 export function enrichVideoEvents(videoId: string, contentType: ContentType) {
-  return jsonReq<ProcessJob>(`/api/option1/events/${encodeURIComponent(videoId)}/enrich`, {
+  return jsonReq<ProcessJob>(`/api/indexing/events/${encodeURIComponent(videoId)}/enrich`, {
     method: "POST", body: JSON.stringify({ content_type: contentType }),
   });
 }

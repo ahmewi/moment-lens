@@ -442,7 +442,7 @@ class VisualTargetsTests(unittest.TestCase):
 
 class EffectiveVisualRerankTests(unittest.TestCase):
     def _req(self, **overrides):
-        return SearchRequest(query="goal", option="option1", **overrides)
+        return SearchRequest(query="goal", **overrides)
 
     def test_request_overrides_take_precedence_over_settings(self):
         with (
@@ -1043,7 +1043,7 @@ class SearchActionRerankIntegrationTests(unittest.TestCase):
 
     def request(self, query="goals being scored", mode="hybrid", top=5):
         return self.client.post("/api/search", json={
-            "query": query, "option": "option1", "top": top,
+            "query": query, "top": top,
             "clip_duration_seconds": 15, "mode": mode,
         })
 
@@ -1201,7 +1201,7 @@ class SearchVisualRerankIntegrationTests(unittest.TestCase):
 
     def request(self, **overrides):
         return self.client.post("/api/search", json={
-            "query": "goals being scored", "option": "option1", "top": 5,
+            "query": "goals being scored", "top": 5,
             "clip_duration_seconds": 15, "mode": "hybrid", **overrides,
         })
 

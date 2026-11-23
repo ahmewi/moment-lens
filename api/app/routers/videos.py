@@ -1,4 +1,4 @@
-"""Videos library router \u2014 list previously indexed videos for browsing in the UI."""
+"""Videos library router — list previously indexed videos for browsing in the UI."""
 from __future__ import annotations
 
 import logging
@@ -9,82 +9,51 @@ from fastapi import APIRouter, HTTPException
 from app import jobs
 from app.azure_clients import search_client
 from app.config import settings
-from app.models import PipelineOption
+from app.odata import quote
 from app.storage import delete_blob_by_url, delete_blobs_with_prefix, proxy_blob_url
 
 log = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _index_for(option: PipelineOption) -> str:
-    if option != "option1":
-        raise HTTPException(400, "Only Video Indexer is supported")
-    return settings.search_index_option1
-
-
 @router.get("")
-def list_videos(option: PipelineOption | None = None) -> dict:
-    """Return distinct (video_id, filename, scene_count, blob_url) per indexed video.
-
-    If `option` is omitted, the Video Indexer index is queried.
-    """
-    options: list[PipelineOption] = [option] if option else ["option1"]
+def list_videos() -> dict:
+    """Return distinct (video_id, filename, scene_count, blob_url) per indexed video."""
     videos: dict[str, dict] = {}
-    for opt in options:
-        index = _index_for(opt)
-        try:
-            client = search_client(index)
-            # Cheap-ish: list up to 1000 docs, project minimal fields, group client-side.
-            results = client.search(
-                search_text="*",
-                top=1000,
-                select=["video_id", "filename", "blob_url", "thumbnail_url", "start_seconds", "end_seconds"],
-            )
-            counts: dict[str, dict] = defaultdict(
-                lambda: {"scenes": 0, "options": set(), "filename": "", "blob_url": "", "thumbnail_url": "", "duration": 0.0}
-            )
-            for r in results:
-                vid = r.get("video_id")
-                if not vid:
-                    continue
-                rec = counts[vid]
-                rec["scenes"] += 1
-                rec["options"].add(opt)
-                rec["filename"] = rec["filename"] or (r.get("filename") or "")
-                rec["blob_url"] = rec["blob_url"] or (r.get("blob_url") or "")
-                rec["thumbnail_url"] = rec["thumbnail_url"] or (r.get("thumbnail_url") or "")
-                rec["duration"] = max(rec["duration"], float(r.get("end_seconds") or 0))
-            for vid, rec in counts.items():
-                if vid in videos:
-                    videos[vid]["scenes"][opt] = rec["scenes"]
-                    videos[vid]["options"].append(opt)
-                    if not videos[vid].get("thumbnail_url") and rec["thumbnail_url"]:
-                        videos[vid]["thumbnail_url"] = rec["thumbnail_url"]
-                else:
-                    videos[vid] = {
-                        "video_id": vid,
-                        "filename": rec["filename"],
-                        "blob_url": rec["blob_url"],
-                        "thumbnail_url": rec["thumbnail_url"],
-                        "duration_seconds": rec["duration"],
-                        "options": [opt],
-                        "scenes": {opt: rec["scenes"]},
-                    }
-        except Exception as e:  # noqa: BLE001
-            log.warning("Listing videos for %s failed: %s", opt, e)
+    try:
+        # Cheap-ish: list up to 1000 docs, project minimal fields, group client-side.
+        results = search_client(settings.search_index).search(
+            search_text="*",
+            top=1000,
+            select=["video_id", "filename", "blob_url", "thumbnail_url", "start_seconds", "end_seconds"],
+        )
+        records: dict[str, dict] = defaultdict(
+            lambda: {"scenes": 0, "filename": "", "blob_url": "", "thumbnail_url": "", "duration": 0.0}
+        )
+        for r in results:
+            vid = r.get("video_id")
+            if not vid:
+                continue
+            rec = records[vid]
+            rec["scenes"] += 1
+            rec["filename"] = rec["filename"] or (r.get("filename") or "")
+            rec["blob_url"] = rec["blob_url"] or (r.get("blob_url") or "")
+            rec["thumbnail_url"] = rec["thumbnail_url"] or (r.get("thumbnail_url") or "")
+            rec["duration"] = max(rec["duration"], float(r.get("end_seconds") or 0))
+        for vid, rec in records.items():
+            videos[vid] = {"video_id": vid, **rec}
+    except Exception as e:  # noqa: BLE001
+        log.warning("Listing videos failed: %s", e)
 
     items = []
     for v in sorted(videos.values(), key=lambda x: x["filename"].lower()):
-        play_url = proxy_blob_url(v["blob_url"]) if v["blob_url"] else ""
-        thumb = proxy_blob_url(v["thumbnail_url"]) if v.get("thumbnail_url") else ""
         items.append({
             "video_id": v["video_id"],
             "filename": v["filename"],
-            "duration_seconds": v["duration_seconds"],
-            "options": sorted(set(v["options"])),
+            "duration_seconds": v["duration"],
             "scenes": v["scenes"],
-            "play_url": play_url,
-            "thumbnail_url": thumb,
+            "play_url": proxy_blob_url(v["blob_url"]) if v["blob_url"] else "",
+            "thumbnail_url": proxy_blob_url(v["thumbnail_url"]) if v["thumbnail_url"] else "",
         })
     return {"count": len(items), "items": items}
 
@@ -96,19 +65,17 @@ def list_jobs() -> dict:
 
 
 @router.get("/{video_id}/scenes")
-def list_scenes(video_id: str, option: PipelineOption = "option1") -> dict:
+def list_scenes(video_id: str) -> dict:
     """Return all SceneCard documents for a video, sorted by start_seconds.
 
-    Each row carries SAS-signed `play_url` + `thumbnail_url` ready for the UI.
+    Each row carries a `play_url` + `thumbnail_url` served by this API, ready for the UI.
     """
     if not video_id:
         raise HTTPException(400, "video_id is required")
-    index = _index_for(option)
     try:
-        client = search_client(index)
-        results = list(client.search(
+        results = list(search_client(settings.search_index).search(
             search_text="*",
-            filter=f"video_id eq '{video_id}'",
+            filter=f"video_id eq '{quote(video_id)}'",
             top=1000,
             select=[
                 "id", "video_id", "filename", "start_seconds", "end_seconds",
@@ -117,8 +84,8 @@ def list_scenes(video_id: str, option: PipelineOption = "option1") -> dict:
             ],
         ))
     except Exception as e:  # noqa: BLE001
-        log.warning("list_scenes(%s, %s) failed: %s", video_id, option, e)
-        raise HTTPException(500, f"Failed to load scenes: {e}")
+        log.warning("list_scenes(%s) failed: %s", video_id, e)
+        raise HTTPException(500, "Failed to load scenes") from e
 
     blob_url = next((r.get("blob_url") for r in results if r.get("blob_url")), "")
     play_url = proxy_blob_url(blob_url) if blob_url else ""
@@ -140,17 +107,16 @@ def list_scenes(video_id: str, option: PipelineOption = "option1") -> dict:
             "thumbnail_url": proxy_blob_url(thumb) if thumb else "",
             "play_url": play_url,
         })
-    return {"video_id": video_id, "option": option, "count": len(items), "items": items}
+    return {"video_id": video_id, "count": len(items), "items": items}
 
 
 def _preserve_source_blob(video_id: str, blob_url: str) -> bool:
     if video_id.startswith("ref-"):
         return True
-    escaped_id = video_id.replace("'", "''")
     try:
-        others = search_client(settings.search_index_option1).search(
+        others = search_client(settings.search_index).search(
             search_text="*",
-            filter=f"video_id ne '{escaped_id}'",
+            filter=f"video_id ne '{quote(video_id)}'",
             select=["blob_url"],
         )
         if any(item.get("blob_url") == blob_url for item in others):
@@ -167,33 +133,31 @@ def delete_video(video_id: str, purge_storage: bool = True) -> dict:
     if not video_id:
         raise HTTPException(400, "video_id is required")
 
-    summary = {"video_id": video_id, "search_deleted": {}, "blobs_deleted": 0, "errors": []}
+    summary = {"video_id": video_id, "search_deleted": 0, "blobs_deleted": 0, "errors": []}
     blob_url_to_delete: str | None = None
     thumb_url_to_delete: str | None = None
 
-    # 1. Look the video up in each index, collect doc ids + blob URLs, then delete docs.
-    for opt in ("option1",):
-        index = _index_for(opt)
-        try:
-            client = search_client(index)
-            results = list(client.search(
-                search_text="*",
-                filter=f"video_id eq '{video_id}'",
-                top=1000,
-                select=["id", "blob_url", "thumbnail_url"],
-            ))
-            doc_ids = [r["id"] for r in results if r.get("id")]
-            for r in results:
-                if not blob_url_to_delete and r.get("blob_url"):
-                    blob_url_to_delete = r["blob_url"]
-                if not thumb_url_to_delete and r.get("thumbnail_url"):
-                    thumb_url_to_delete = r["thumbnail_url"]
-            if doc_ids:
-                client.delete_documents(documents=[{"id": i} for i in doc_ids])
-            summary["search_deleted"][opt] = len(doc_ids)
-        except Exception as e:  # noqa: BLE001
-            log.warning("Delete from %s failed: %s", opt, e)
-            summary["errors"].append(f"{opt}: {e}")
+    # 1. Look the video up in the index, collect doc ids + blob URLs, then delete docs.
+    try:
+        client = search_client(settings.search_index)
+        results = list(client.search(
+            search_text="*",
+            filter=f"video_id eq '{quote(video_id)}'",
+            top=1000,
+            select=["id", "blob_url", "thumbnail_url"],
+        ))
+        doc_ids = [r["id"] for r in results if r.get("id")]
+        for r in results:
+            if not blob_url_to_delete and r.get("blob_url"):
+                blob_url_to_delete = r["blob_url"]
+            if not thumb_url_to_delete and r.get("thumbnail_url"):
+                thumb_url_to_delete = r["thumbnail_url"]
+        if doc_ids:
+            client.delete_documents(documents=[{"id": i} for i in doc_ids])
+        summary["search_deleted"] = len(doc_ids)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Delete from the search index failed: %s", e)
+        summary["errors"].append(f"search: {e}")
 
     # 2. Storage cleanup
     if purge_storage:

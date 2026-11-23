@@ -128,9 +128,7 @@ export default function LibraryPage() {
               <Subtitle2 className={cls.filename}>{v.filename}</Subtitle2>
               <Text size={200} className={cls.meta} block>id: {v.video_id} · duration {fmtDur(v.duration_seconds)}</Text>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
-                {v.options.includes("option1") && (
-                  <Badge appearance="tint" color="brand">VI · {v.scenes.option1 ?? 0} scenes</Badge>
-                )}
+                <Badge appearance="tint" color="brand">{v.scenes} scenes</Badge>
               </div>
               <div className={cls.footer}>
                 <Text size={200} className={cls.meta}>Azure AI Video Indexer</Text>

@@ -8,12 +8,11 @@ import {
   Circle20Regular, SpinnerIos20Regular, MoreCircle20Regular, ArrowClockwise20Regular,
   FolderOpen24Regular, Play24Regular, ChevronDown20Regular,
 } from "@fluentui/react-icons";
-import type { ContentType, PipelineOption, ProcessJob, StageInfo, StageName, StageStatus, StoredVideo, VideoIndexerLanguage, ViIndexingWindowSeconds } from "../api";
+import type { ContentType, ProcessJob, StageInfo, StageName, StageStatus, StoredVideo, VideoIndexerLanguage, ViIndexingWindowSeconds } from "../api";
 import { CONTENT_TYPES, getStatus, getStoredVideos, getViLanguages, referenceStoredVideo, startProcess, uploadVideo } from "../api";
 import SceneFilmstrip from "./SceneFilmstrip";
 
 interface Props {
-  option: PipelineOption;
   onIndexed?: (videoId: string) => void;
 }
 
@@ -30,7 +29,6 @@ interface UploadItem {
 
 // Cap concurrent in-flight uploads so we don't hammer Video Indexer (HTTP 429).
 const MAX_IN_FLIGHT = 10;
-const BUILD_TAG = "build-sas-chunked · 4MiB blocks · upload-cap=10 · stages=on";
 
 const INDEXING_WINDOWS: { value: ViIndexingWindowSeconds; label: string }[] = [
   { value: 20, label: "20 seconds" },
@@ -40,11 +38,9 @@ const INDEXING_WINDOWS: { value: ViIndexingWindowSeconds; label: string }[] = [
 
 const STAGE_LABELS: Record<StageName, string> = {
   upload: "Upload",
-  transcode: "Transcode",
-  split: "Split",
   analyze: "Analyze",
 };
-const STAGE_ORDER: StageName[] = ["upload", "transcode", "split", "analyze"];
+const STAGE_ORDER: StageName[] = ["upload", "analyze"];
 
 // Module-scope queue + counter — shared across all UploadPane instances and
 // re-mounts (StrictMode in dev re-mounts every component once on first render,
@@ -166,7 +162,7 @@ function StageStepper({ stages }: { stages: StageInfo[] }) {
         <div
           key={s.name}
           className={cls.stageCell}
-          // Skipped stages are valid (e.g. Option 1 has no transcode/split) —
+          // Skipped stages are valid (e.g. Upload for a video already in storage) —
           // dim the cell so they read as "n/a" instead of "still pending".
           style={s.status === "skipped" ? { opacity: 0.55 } : undefined}
           title={`${STAGE_LABELS[s.name]} \u00b7 ${s.status}${s.detail ? ` \u00b7 ${s.detail}` : ""}`}
@@ -194,7 +190,7 @@ function StageStepper({ stages }: { stages: StageInfo[] }) {
   );
 }
 
-export default function UploadPane({ option, onIndexed }: Props) {
+export default function UploadPane({ onIndexed }: Props) {
   const cls = useStyles();
   const inputRef = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<UploadItem[]>([]);
@@ -242,7 +238,6 @@ export default function UploadPane({ option, onIndexed }: Props) {
   }
 
   useEffect(() => {
-    if (option !== "option1") return;
     let active = true;
     setLanguagesLoading(true);
     setLanguageError(false);
@@ -251,9 +246,9 @@ export default function UploadPane({ option, onIndexed }: Props) {
       .catch(() => { if (active) setLanguageError(true); })
       .finally(() => { if (active) setLanguagesLoading(false); });
     return () => { active = false; };
-  }, [option, languageReload]);
+  }, [languageReload]);
 
-  // Force re-render every second so the elapsed clock updates while CU/VI processes.
+  // Force re-render every second so the elapsed clock updates while Video Indexer processes.
   const [, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), 1000);
@@ -274,13 +269,13 @@ export default function UploadPane({ option, onIndexed }: Props) {
         ? await uploadVideo(source.file, (pct) => patch(key, { uploadPct: pct }))
         : await referenceStoredVideo(source.blobUrl);
       patch(key, { filename: up.filename, uploadPct: 100 });
-      const j = await startProcess(option, {
+      const j = await startProcess({
         video_id: up.video_id,
         filename: up.filename,
         blob_url: up.blob_url,
         content_type: contentType,
-        ...(option === "option1" && sourceLanguage !== "auto" ? { source_language: sourceLanguage } : {}),
-        ...(option === "option1" ? { indexing_window_seconds: indexingWindowSeconds } : {}),
+        ...(sourceLanguage !== "auto" ? { source_language: sourceLanguage } : {}),
+        indexing_window_seconds: indexingWindowSeconds,
       });
       patch(key, { job: j, uploadPct: 100 });
     } catch (e: any) {
@@ -319,7 +314,7 @@ export default function UploadPane({ option, onIndexed }: Props) {
       await Promise.all(inFlight.map(async (it) => {
         if (!it.job) return;
         try {
-          const next = await getStatus(option, it.job.video_id);
+          const next = await getStatus(it.job.video_id);
           patch(it.key, { job: next });
           if (next.status === "indexed" && onIndexed) onIndexed(next.video_id);
         } catch { /* keep polling */ }
@@ -327,7 +322,7 @@ export default function UploadPane({ option, onIndexed }: Props) {
     }, 4000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items.map((i) => `${i.key}:${i.job?.status ?? "-"}`).join("|"), option]);
+  }, [items.map((i) => `${i.key}:${i.job?.status ?? "-"}`).join("|")]);
 
   function clearDone() {
     setItems((arr) => arr.filter((it) => !(it.job?.status === "indexed" || it.job?.status === "failed" || it.error)));
@@ -350,10 +345,8 @@ export default function UploadPane({ option, onIndexed }: Props) {
         <Tab value="storage" icon={<FolderOpen24Regular />}>Storage</Tab>
       </TabList>
       {sourceMode === "upload" && <Body1 block className={cls.meta} style={{ marginTop: 4 }}>
-        Max 10&nbsp;GB each · MP4 / MOV / MKV / WEBM / MPEG (auto-transcoded). Pick or drop multiple files — each one is indexed via{" "}
+        Max 10&nbsp;GB each · MP4 / MOV / MKV / WEBM / MPEG. Pick or drop multiple files — each one is indexed via{" "}
         <strong>Azure AI Video Indexer</strong>.
-        <br />
-        <Text size={100} className={cls.meta}>{BUILD_TAG}</Text>
       </Body1>}
 
       <input
@@ -385,64 +378,60 @@ export default function UploadPane({ option, onIndexed }: Props) {
           </Dropdown>
         </Field>
       </div>
-      {option === "option1" && (
-        <div style={{ marginTop: 12, display: "flex", alignItems: "flex-start", gap: 8 }}>
-          <Field
-            label="Spoken language / dialect"
-            style={{ flex: 1, minWidth: 0 }}
-            validationState={languageError ? "warning" : "none"}
-            validationMessage={languageError ? "Language list unavailable." : languagesLoading ? "Loading languages..." : undefined}
+      <div style={{ marginTop: 12, display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <Field
+          label="Spoken language / dialect"
+          style={{ flex: 1, minWidth: 0 }}
+          validationState={languageError ? "warning" : "none"}
+          validationMessage={languageError ? "Language list unavailable." : languagesLoading ? "Loading languages..." : undefined}
+        >
+          <Dropdown
+            value={sourceLanguage === "auto" ? "Auto detect" : `${viLanguages.find((language) => language.code === sourceLanguage)?.name || sourceLanguage} (${sourceLanguage})`}
+            selectedOptions={[sourceLanguage]}
+            disabled={languagesLoading}
+            style={{ width: "100%", minWidth: 0 }}
+            button={{ style: { whiteSpace: "normal", overflowWrap: "anywhere", textAlign: "left" } }}
+            listbox={{ style: { maxHeight: 320, overflowY: "auto" } }}
+            onOptionSelect={(_event, data) => {
+              if (data.optionValue) setSourceLanguage(data.optionValue);
+            }}
           >
-            <Dropdown
-              value={sourceLanguage === "auto" ? "Auto detect" : `${viLanguages.find((language) => language.code === sourceLanguage)?.name || sourceLanguage} (${sourceLanguage})`}
-              selectedOptions={[sourceLanguage]}
-              disabled={languagesLoading}
-              style={{ width: "100%", minWidth: 0 }}
-              button={{ style: { whiteSpace: "normal", overflowWrap: "anywhere", textAlign: "left" } }}
-              listbox={{ style: { maxHeight: 320, overflowY: "auto" } }}
-              onOptionSelect={(_event, data) => {
-                if (data.optionValue) setSourceLanguage(data.optionValue);
-              }}
-            >
-              <Option value="auto">Auto detect</Option>
-              {viLanguages.map((language) => (
-                <Option key={language.code} value={language.code}>
-                  {`${language.name} (${language.code})`}
-                </Option>
-              ))}
-            </Dropdown>
-          </Field>
-          {languageError && (
-            <Button
-              appearance="subtle"
-              icon={<ArrowClockwise20Regular />}
-              aria-label="Retry language list"
-              title="Retry language list"
-              style={{ marginTop: 28 }}
-              onClick={() => setLanguageReload((reload) => reload + 1)}
-            />
-          )}
-        </div>
-      )}
-      {option === "option1" && (
-        <div style={{ marginTop: 12 }}>
-          <Field label="Indexing window">
-            <Dropdown
-              value={INDEXING_WINDOWS.find((window) => window.value === indexingWindowSeconds)?.label || ""}
-              selectedOptions={[String(indexingWindowSeconds)]}
-              style={{ width: "100%", minWidth: 0 }}
-              onOptionSelect={(_event, data) => {
-                const selected = INDEXING_WINDOWS.find((window) => String(window.value) === data.optionValue);
-                if (selected) setIndexingWindowSeconds(selected.value);
-              }}
-            >
-              {INDEXING_WINDOWS.map((window) => (
-                <Option key={window.value} value={String(window.value)}>{window.label}</Option>
-              ))}
-            </Dropdown>
-          </Field>
-        </div>
-      )}
+            <Option value="auto">Auto detect</Option>
+            {viLanguages.map((language) => (
+              <Option key={language.code} value={language.code}>
+                {`${language.name} (${language.code})`}
+              </Option>
+            ))}
+          </Dropdown>
+        </Field>
+        {languageError && (
+          <Button
+            appearance="subtle"
+            icon={<ArrowClockwise20Regular />}
+            aria-label="Retry language list"
+            title="Retry language list"
+            style={{ marginTop: 28 }}
+            onClick={() => setLanguageReload((reload) => reload + 1)}
+          />
+        )}
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <Field label="Indexing window">
+          <Dropdown
+            value={INDEXING_WINDOWS.find((window) => window.value === indexingWindowSeconds)?.label || ""}
+            selectedOptions={[String(indexingWindowSeconds)]}
+            style={{ width: "100%", minWidth: 0 }}
+            onOptionSelect={(_event, data) => {
+              const selected = INDEXING_WINDOWS.find((window) => String(window.value) === data.optionValue);
+              if (selected) setIndexingWindowSeconds(selected.value);
+            }}
+          >
+            {INDEXING_WINDOWS.map((window) => (
+              <Option key={window.value} value={String(window.value)}>{window.label}</Option>
+            ))}
+          </Dropdown>
+        </Field>
+      </div>
       {sourceMode === "upload" ? <div
         className={`${cls.drop} ${dragOver ? cls.dropActive : ""}`}
         onClick={() => inputRef.current?.click()}
@@ -544,9 +533,7 @@ export default function UploadPane({ option, onIndexed }: Props) {
                 detail: it.uploadPct > 0 && it.uploadPct < 100 ? `${it.uploadPct}%` : "",
                 error: it.error,
               },
-              { name: "transcode", status: "pending", progress: 0, detail: "" },
-              { name: "split",     status: "pending", progress: 0, detail: "" },
-              { name: "analyze",   status: "pending", progress: 0, detail: "" },
+              { name: "analyze", status: "pending", progress: 0, detail: "" },
             ];
         return (
           <div key={it.key} className={cls.uploadRow}>
@@ -591,7 +578,6 @@ export default function UploadPane({ option, onIndexed }: Props) {
               <SceneFilmstrip
                 videoId={job.video_id}
                 filename={it.filename}
-                option={option}
               />
             )}
           </div>

@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     # Search
     azure_search_endpoint: str = Field(default="", alias="AZURE_SEARCH_ENDPOINT")
-    search_index_option1: str = Field(default="moments-option1", alias="AZURE_SEARCH_INDEX_OPTION1")
+    search_index: str = Field(default="moments", alias="AZURE_SEARCH_INDEX")
 
     # Action-aware text-evidence reranker (hybrid mode only). Judges whether a
     # candidate's transcript/OCR/labels actually support the requested action
@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     # minute, and the earliest clip in a cluster wins, so replays fold into the first view.
     search_deep_merge_window_seconds: float = Field(default=60.0, ge=0, le=600, alias="SEARCH_DEEP_MERGE_WINDOW_SECONDS")
 
-    # Index-time visual enrichment (Option 1): the judge model describes the frames of every scene card and tags the
+    # Index-time visual enrichment: the judge model describes the frames of every scene card and tags the
     # visible events ("yellow card", "free kick"), folded into summary/labels before embedding, so event queries can
     # find windows whose speech never mentions the event (this broadcast's transcript is mostly noise). About one
     # judge call (~3.7k tokens) per card; fails open.
@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     azure_openai_judge_api_version: str = Field(default="", alias="AZURE_OPENAI_JUDGE_API_VERSION")
     azure_openai_judge_reasoning_effort: str = Field(default="", alias="AZURE_OPENAI_JUDGE_REASONING_EFFORT")
 
-    # ── VI-poller Container Apps Job (Option 1) ────────────────────────
+    # ── VI-poller Container Apps Job ───────────────────────────────────
     # Polls Video Indexer until ingestion completes, persists the Index JSON
     # to the insights container. When empty the API falls back to in-process
     # polling (which dies if the App Service worker recycles mid-run).
@@ -108,7 +108,7 @@ class Settings(BaseSettings):
     jobs_table_name: str = Field(default="momentlensjobs", alias="JOBS_TABLE_NAME")
     jobs_table_enabled: bool = Field(default=True, alias="JOBS_TABLE_ENABLED")
 
-    # ── Cost telemetry rates (USD; demo defaults — adjust per agreement) ──
+    # ── Cost telemetry rates (USD; illustrative defaults — set your own) ──
     cost_rate_vi_per_minute: float = Field(default=0.04, alias="COST_RATE_VI_PER_MINUTE")
     cost_rate_embedding_per_million_tokens: float = Field(default=0.13, alias="COST_RATE_EMBEDDING_PER_MILLION_TOKENS")
 

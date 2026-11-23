@@ -200,7 +200,7 @@ export default function ViVideoExperience({ item, onPickEvent, onTimeUpdate, onE
     let timer: ReturnType<typeof setTimeout>;
     async function poll() {
       try {
-        const next = await getStatus("option1", job!.video_id);
+        const next = await getStatus(job!.video_id);
         if (cancelled) return;
         if (next.status === "indexed") { setJob(next); setRevision(value => value + 1); enrichedRef.current?.(); }
         else if (next.status === "failed") { setJob(next); setError(next.error ?? "Event extraction failed"); }

@@ -4,7 +4,7 @@ import {
   Spinner, Subtitle2, Text, Tooltip, makeStyles, shorthands, tokens,
 } from "@fluentui/react-components";
 import { ChevronDown16Regular, ChevronUp16Regular, Dismiss20Regular } from "@fluentui/react-icons";
-import type { PipelineOption, SceneItem, SearchResultItem } from "../api";
+import type { SceneItem, SearchResultItem } from "../api";
 import { listScenes } from "../api";
 import VideoPlayer from "./VideoPlayer";
 import SceneList from "./SceneList";
@@ -12,7 +12,6 @@ import SceneList from "./SceneList";
 interface Props {
   videoId: string;
   filename: string;
-  option: PipelineOption;
   /** Auto-collapse the strip when scene count exceeds this. */
   collapseThreshold?: number;
 }
@@ -111,7 +110,7 @@ function sceneToItem(s: SceneItem): SearchResultItem {
 }
 
 export default function SceneFilmstrip({
-  videoId, filename, option, collapseThreshold = 60,
+  videoId, filename, collapseThreshold = 60,
 }: Props) {
   const cls = useStyles();
   const [scenes, setScenes] = useState<SceneItem[]>([]);
@@ -124,12 +123,12 @@ export default function SceneFilmstrip({
   useEffect(() => {
     let canceled = false;
     setLoading(true); setErr(null);
-    listScenes(videoId, option)
+    listScenes(videoId)
       .then((r) => { if (!canceled) { setScenes(r.items); setExpanded(r.items.length <= collapseThreshold); } })
       .catch((e) => { if (!canceled) setErr(e?.message || String(e)); })
       .finally(() => { if (!canceled) setLoading(false); });
     return () => { canceled = true; };
-  }, [videoId, option, collapseThreshold]);
+  }, [videoId, collapseThreshold]);
 
   const tooBig = scenes.length > collapseThreshold;
   const visible = expanded ? scenes : scenes.slice(0, collapseThreshold);

@@ -1,4 +1,4 @@
-"""Option 1 router — Video Indexer pipeline."""
+"""Indexing router — Video Indexer ingestion, moment tags and playback metadata."""
 from __future__ import annotations
 
 import threading
@@ -28,7 +28,7 @@ class EventEnrichmentRequest(BaseModel):
 def _video_metadata(video_id: str) -> tuple[dict | None, dict]:
     try:
         manifest = read_video_json(video_id, "events.json")
-        raw = read_video_json(video_id, "option1.json") or {}
+        raw = read_video_json(video_id, "insights.json") or {}
     except ValueError as exc:
         raise HTTPException(400, "Invalid video metadata request") from exc
     except Exception as exc:
@@ -47,13 +47,13 @@ def _profile_plan(content_type: ContentType) -> dict:
     if not profile_for(content_type):
         raise HTTPException(422, "No event extraction profile is configured for this content type")
     try:
-        documents = search_client(settings.search_index_option1).search(
+        documents = search_client(settings.search_index).search(
             search_text="*", filter=f"content_type eq '{content_type}'", select=["video_id"],
         )
         video_ids = sorted({document["video_id"] for document in documents if document.get("video_id")})
         queued, skipped, active = [], [], []
         for video_id in video_ids:
-            job = jobs.get_job(video_id, "option1")
+            job = jobs.get_job(video_id)
             if job and job.status in ("submitted", "processing"):
                 active.append(video_id)
                 continue
@@ -83,22 +83,22 @@ def _enrich_profile(video_ids: list[str], content_type: ContentType, on_progress
     failed, partial = [], []
     for index, video_id in enumerate(video_ids):
         on_status(stage=f"Analyzing video {index + 1}/{len(video_ids)}")
-        jobs.init_stages(video_id, "option1", {"upload": "skipped", "transcode": "skipped", "split": "skipped"})
-        jobs.update(video_id, "option1", status="processing", progress=10, error=None)
+        jobs.init_stages(video_id, {"upload": "skipped"})
+        jobs.update(video_id, status="processing", progress=10, error=None)
         try:
             result = enrich_video_events(
                 video_id, content_type,
-                on_progress=lambda progress: jobs.update(video_id, "option1", progress=progress),
-                on_stage=lambda name, **fields: jobs.set_stage(video_id, "option1", name, **fields),
+                on_progress=lambda progress: jobs.update(video_id, progress=progress),
+                on_stage=lambda name, **fields: jobs.set_stage(video_id, name, **fields),
             )
-            jobs.update(video_id, "option1", status="indexed", progress=100, insights_url=result.get("insights_url"))
-            jobs.set_stage(video_id, "option1", "analyze", status="completed")
+            jobs.update(video_id, status="indexed", progress=100, insights_url=result.get("insights_url"))
+            jobs.set_stage(video_id, "analyze", status="completed")
             if result.get("event_status") != "completed":
                 partial.append(video_id)
         except Exception:
             failed.append(video_id)
-            jobs.update(video_id, "option1", status="failed", progress=0, error="Event analysis failed; retry this video")
-            jobs.set_stage(video_id, "option1", "analyze", status="failed", error="Event analysis failed")
+            jobs.update(video_id, status="failed", progress=0, error="Event analysis failed; retry this video")
+            jobs.set_stage(video_id, "analyze", status="failed", error="Event analysis failed")
         on_progress(int((index + 1) / len(video_ids) * 100))
     on_status(stage=f"Profile analysis finished: {len(video_ids) - len(failed)} analyzed, {len(partial)} partial, {len(failed)} failed")
     if failed:
@@ -110,7 +110,7 @@ def _enrich_profile(video_ids: list[str], content_type: ContentType, on_progress
 def enrich_profile(content_type: ContentType) -> dict:
     with _enrichment_lock:
         group_id = f"profile-{content_type}"
-        current = jobs.get_job(group_id, "option1")
+        current = jobs.get_job(group_id)
         if current and current.status in ("submitted", "processing"):
             raise HTTPException(409, "This content profile is already being analyzed")
         plan = _profile_plan(content_type)
@@ -118,11 +118,11 @@ def enrich_profile(content_type: ContentType) -> dict:
         if not video_ids:
             return {**plan, "job": None}
         for video_id in video_ids:
-            jobs.update(video_id, "option1", status="submitted", progress=0, error=None, stage="Queued for profile analysis")
+            jobs.update(video_id, status="submitted", progress=0, error=None, stage="Queued for profile analysis")
         job = jobs.run_async(
-            video_id=group_id, option="option1", pass_progress_callback=True,
+            video_id=group_id, pass_progress_callback=True,
             target=lambda on_progress, on_status, on_stage: _enrich_profile(video_ids, content_type, on_progress, on_status, on_stage),
-            initial_stages={"upload": "skipped", "transcode": "skipped", "split": "skipped", "analyze": "pending"},
+            initial_stages={"upload": "skipped", "analyze": "pending"},
         )
         return {**plan, "job": job.model_dump()}
 
@@ -169,13 +169,13 @@ def enrich_events(video_id: str, req: EventEnrichmentRequest) -> ProcessJob:
         raise HTTPException(422, "No event extraction profile is configured for this content type")
     _video_metadata(video_id)
     with _enrichment_lock:
-        job = jobs.get_job(video_id, "option1")
+        job = jobs.get_job(video_id)
         if job and job.status in ("submitted", "processing"):
             raise HTTPException(409, "This video is already processing")
-        return jobs.run_async(video_id=video_id, option="option1",
+        return jobs.run_async(video_id=video_id,
             target=lambda on_progress, on_status, on_stage: enrich_video_events(video_id, req.content_type, on_progress, on_stage, scene_ids=req.scene_ids),
             pass_progress_callback=True,
-            initial_stages={"upload": "skipped", "transcode": "skipped", "split": "skipped", "analyze": "pending"})
+            initial_stages={"upload": "skipped", "analyze": "pending"})
 
 
 @router.get("/languages", response_model=list[VideoIndexerLanguage])
@@ -198,7 +198,6 @@ def start(req: ProcessRequest) -> ProcessJob:
     ensure_indexes()
     return jobs.run_async(
         video_id=req.video_id,
-        option="option1",
         target=lambda on_progress, on_status, on_stage: process_video(
             req.video_id, req.filename, req.blob_url,
             content_type=req.content_type,
@@ -208,12 +207,9 @@ def start(req: ProcessRequest) -> ProcessJob:
             on_stage=on_stage,
         ),
         pass_progress_callback=True,
-        # VI handles transcode + chunking server-side, so those stages are skipped.
         # Upload is done before /process is hit; Analyze covers the VI lifecycle.
         initial_stages={
             "upload": "skipped" if req.video_id.startswith("ref-") else "completed",
-            "transcode": "skipped",
-            "split": "skipped",
             "analyze": "pending",
         },
     )
@@ -221,7 +217,7 @@ def start(req: ProcessRequest) -> ProcessJob:
 
 @router.get("/status/{video_id}", response_model=ProcessJob)
 def status(video_id: str) -> ProcessJob:
-    job = jobs.get_job(video_id, "option1")
+    job = jobs.get_job(video_id)
     if not job:
         raise HTTPException(404, "No job for this video.")
     return job

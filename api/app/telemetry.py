@@ -4,17 +4,11 @@ Configures `azure-monitor-opentelemetry` once at import time when the
 APPLICATIONINSIGHTS_CONNECTION_STRING env var is set, then exposes a small
 typed surface for emitting per-pipeline-run cost/latency metrics.
 
-Cost model (per-resource list price as of 2026-Q1, all USD):
-
-    * Azure AI Video Indexer Standard preset       $0.04   / minute
-    * Content Understanding (prebuilt-videoSearch) $0.05   / minute
-    * Content Understanding (custom analyzer)      $0.30   / minute
-    * Azure OpenAI text-embedding-3-large          $0.13   / 1M tokens
-    * Azure OpenAI gpt-4o-mini  in / out           $0.15 / $0.60 / 1M
-
-The numbers are configurable through env (see `app.config`). The cost figures
-are estimates only — invoiced cost will vary with commitments, region, and
-support tier — but they are good enough for a relative dashboard.
+Cost model: the rates are illustrative defaults (USD) for Video Indexer
+(per video minute) and embeddings (per million tokens). Set the
+`COST_RATE_*` variables (see `app.config`) to your own agreement. The figures
+are estimates only (invoiced cost varies with commitments, region and support
+tier), but they are good enough for a relative dashboard.
 """
 from __future__ import annotations
 
@@ -71,16 +65,6 @@ def estimate_vi_cost_usd(duration_seconds: float, rate_per_min: float) -> float:
     return max(0.0, (duration_seconds / 60.0) * rate_per_min)
 
 
-def estimate_cu_cost_usd(
-    duration_seconds: float,
-    rate_per_min_custom: float,
-    rate_per_min_prebuilt: float,
-    use_custom: bool,
-) -> float:
-    rate = rate_per_min_custom if use_custom else rate_per_min_prebuilt
-    return max(0.0, (duration_seconds / 60.0) * rate)
-
-
 def estimate_embedding_cost_usd(scene_count: int, rate_per_million_tokens: float,
                                  avg_tokens_per_scene: float = 600.0) -> float:
     """Embedding spend = (scenes × avg_tokens × 2 vectors) × rate.
@@ -99,15 +83,11 @@ def estimate_embedding_cost_usd(scene_count: int, rate_per_million_tokens: float
 
 def record_pipeline_run(
     *,
-    option: str,
     content_type: Optional[str],
     duration_seconds: float,
     latency_seconds: float,
     scene_count: int,
     status: str,
-    chunked: bool = False,
-    chunk_count: int = 0,
-    use_custom_analyzer: bool = False,
     estimated_cost_usd: float = 0.0,
 ) -> None:
     """Emit one set of custom metrics for a finished pipeline run.
@@ -120,11 +100,8 @@ def record_pipeline_run(
     if _pipeline_runs is None:
         return
     attrs = {
-        "option": option,
         "content_type": content_type or "unknown",
         "status": status,
-        "chunked": str(bool(chunked)).lower(),
-        "use_custom": str(bool(use_custom_analyzer)).lower(),
     }
     try:
         _pipeline_runs.add(1, attributes=attrs)
@@ -133,8 +110,8 @@ def record_pipeline_run(
         if scene_count:
             _pipeline_scenes.record(scene_count, attributes=attrs)
         log.info(
-            "telemetry: option=%s status=%s scenes=%d chunks=%d duration=%.1fs latency=%.1fs cost=$%.4f",
-            option, status, scene_count, chunk_count, duration_seconds, latency_seconds, estimated_cost_usd,
+            "telemetry: status=%s scenes=%d duration=%.1fs latency=%.1fs cost=$%.4f",
+            status, scene_count, duration_seconds, latency_seconds, estimated_cost_usd,
         )
     except Exception as e:  # noqa: BLE001
         log.warning("record_pipeline_run failed: %s", e)

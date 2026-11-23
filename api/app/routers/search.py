@@ -1,4 +1,4 @@
-"""Search router — smart hybrid query against either index.
+"""Search router — smart hybrid query over the moments index.
 
 Quality controls:
   * LLM query rewrite extracts named entities (e.g. "Rivera" -> "Sam Rivera"),
@@ -51,6 +51,7 @@ from fastapi import APIRouter, HTTPException
 from app.azure_clients import search_client
 from app.config import settings
 from app.models import DeepSearchStats, FacetValue, SearchRequest, SearchResponse, SearchResultItem
+from app.odata import quote
 from app.pipelines.event_enrichment import EVENT_SEARCH_QUERIES, PROFILES
 from app.pipelines.indexer import SCORING_PROFILE, SEMANTIC_CONFIG
 from app.pipelines.openai_helpers import embed_texts, rerank_action_candidates, rewrite_query
@@ -386,12 +387,6 @@ def _build_vector_queries(
 ENTITY_FIELDS_FOR_FILTER = "entities,summary,transcript_excerpt,ocr_text,labels"
 
 
-def _index_for(option: str) -> str:
-    if option == "option1":
-        return settings.search_index_option1
-    raise HTTPException(400, "Unknown option")
-
-
 _TOKEN_RE = re.compile(r"[A-Za-z0-9'\u00C0-\u017F]+")
 
 
@@ -463,10 +458,6 @@ def _build_entity_filter(rewrite: dict) -> str | None:
     return " and ".join(clauses)
 
 
-def _odata_quote(v: str) -> str:
-    return v.replace("'", "''")
-
-
 def _build_user_filter(filters: Any) -> str | None:
     """Combine UI filter chips into an OData filter string.
 
@@ -477,14 +468,14 @@ def _build_user_filter(filters: Any) -> str | None:
         return None
     parts: list[str] = []
     if filters.video_ids:
-        ors = " or ".join(f"video_id eq '{_odata_quote(v)}'" for v in filters.video_ids)
+        ors = " or ".join(f"video_id eq '{quote(v)}'" for v in filters.video_ids)
         parts.append(f"({ors})")
     if filters.content_types:
-        ors = " or ".join(f"content_type eq '{_odata_quote(v)}'" for v in filters.content_types)
+        ors = " or ".join(f"content_type eq '{quote(v)}'" for v in filters.content_types)
         parts.append(f"({ors})")
     if filters.labels:
         # `labels` is a Collection(Edm.String) — use any() lambdas
-        ors = " or ".join(f"l eq '{_odata_quote(v)}'" for v in filters.labels)
+        ors = " or ".join(f"l eq '{quote(v)}'" for v in filters.labels)
         parts.append(f"labels/any(l: {ors})")
     return " and ".join(parts) if parts else None
 
@@ -655,8 +646,8 @@ def _deep_search(
 
 
 def _search_tagged(req: SearchRequest, kind: str) -> SearchResponse:
-    client = search_client(_index_for(req.option))
-    event_filter = f"labels/any(label: label eq 'event:{kind}')"
+    client = search_client(settings.search_index)
+    event_filter = f"labels/any(label: label eq 'event:{quote(kind)}')"
     combined_filter = _combine_filters(event_filter, _build_user_filter(req.filters))
     try:
         # Every tagged hit, not an arbitrary 50: a `*` search has no order, so a smaller cut would drop moments
@@ -700,7 +691,7 @@ def _search_tagged(req: SearchRequest, kind: str) -> SearchResponse:
                      kind, len(tagged), len(recovered), stats.candidates_judged, stats.frames_checked)
     moments = _drop_overlapping(sorted(tagged + recovered, key=_chronological), scene_end_by_id)
     selected = moments[:req.top]
-    return SearchResponse(option=req.option, query=req.query, event_kind=kind, count=len(selected), items=selected,
+    return SearchResponse(query=req.query, event_kind=kind, count=len(selected), items=selected,
                           facets=facets, deep_search=stats, total_matches=len(moments))
 
 
@@ -716,7 +707,7 @@ class _Pool:
 
 def _retrieve_pool(req: SearchRequest, rewrite: dict) -> _Pool:
     """Steps 2-6 of a search: embed, retrieve a wide candidate pool, apply the reranker threshold."""
-    index_name = _index_for(req.option)
+    index_name = settings.search_index
     client = search_client(index_name)
     expanded = rewrite.get("expanded_query") or req.query
 
@@ -899,9 +890,7 @@ def search(req: SearchRequest) -> SearchResponse:
         ]
 
     log.info(
-        "Search done: q=%r option=%s mode=%s used_filter=%s returned=%d facet_groups=%d",
-        req.query, req.option, req.mode, used_filter, len(items), len(facets),
+        "Search done: q=%r mode=%s used_filter=%s returned=%d facet_groups=%d",
+        req.query, req.mode, used_filter, len(items), len(facets),
     )
-    return SearchResponse(
-        option=req.option, query=req.query, count=len(items), items=items, facets=facets,
-    )
+    return SearchResponse(query=req.query, count=len(items), items=items, facets=facets)
