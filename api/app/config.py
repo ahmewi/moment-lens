@@ -63,19 +63,19 @@ class Settings(BaseSettings):
 
     # OpenAI
     azure_openai_endpoint: str = Field(default="", alias="AZURE_OPENAI_ENDPOINT")
-    azure_openai_chat_deployment: str = Field(default="gpt-4o-mini", alias="AZURE_OPENAI_CHAT_DEPLOYMENT")
-    azure_openai_embedding_deployment: str = Field(default="text-embedding-3-large", alias="AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
+    azure_openai_chat_deployment: str = Field(default="chat", alias="AZURE_OPENAI_CHAT_DEPLOYMENT")
+    azure_openai_embedding_deployment: str = Field(default="embedding", alias="AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
     azure_openai_api_version: str = Field(default="2024-10-21", alias="AZURE_OPENAI_API_VERSION")
     # Judge model for the action-aware rerank: it classifies every candidate from its transcript,
     # clip insights (summary/labels/OCR) and, for the best text matches, sampled video frames.
-    # Empty = reuse the chat deployment on the primary account above. gpt-4o-mini cannot reliably
-    # tell a goal from a saved shot in frames (measured: 40% goal recall, about half of the
-    # answers "uncertain") and bills 2.8-8.5k tokens per image against a 50K TPM quota, so
-    # production points this at a stronger multimodal deployment, which may live on a different
-    # Azure OpenAI / Foundry account (endpoint override; the app's managed identity needs the
-    # "Cognitive Services OpenAI User" role there). Reasoning-style models
-    # reject `temperature` and `max_tokens`: setting a reasoning effort (low/medium/high) switches
-    # the judge calls to the compatible parameter set.
+    # Empty = reuse the chat deployment on the primary account above. Small chat models cannot
+    # reliably tell a goal from a saved shot in frames (measured on a labelled clip set: about 40%
+    # goal recall, about half of the answers "uncertain") and bill thousands of tokens per image, so
+    # deployments point this at a stronger multimodal deployment (the `judge` deployment created by
+    # infra/), which may also live on a different Azure OpenAI account (endpoint override; the
+    # app's managed identity needs the "Cognitive Services OpenAI User" role there). Reasoning-style
+    # models reject `temperature` and `max_tokens`: setting a reasoning effort (low/medium/high)
+    # switches the judge calls to the compatible parameter set.
     azure_openai_judge_endpoint: str = Field(default="", alias="AZURE_OPENAI_JUDGE_ENDPOINT")
     azure_openai_judge_deployment: str = Field(default="", alias="AZURE_OPENAI_JUDGE_DEPLOYMENT")
     azure_openai_judge_api_version: str = Field(default="", alias="AZURE_OPENAI_JUDGE_API_VERSION")

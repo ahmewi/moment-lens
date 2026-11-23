@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -10,6 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
+from app.pipelines.indexer import ensure_indexes
 from app.routers import indexing, media, search, upload, videos
 from app.telemetry import configure as configure_telemetry
 
@@ -21,7 +24,25 @@ log = logging.getLogger("momentlens")
 # env var isn't set.
 configure_telemetry()
 
-app = FastAPI(title="MomentLens API", version="0.1.0")
+
+
+def _ensure_indexes_quietly() -> None:
+    try:
+        ensure_indexes()
+    except Exception as exc:  # noqa: BLE001
+        # Search or its role assignment may not be ready yet right after a deployment; the first indexing
+        # request creates the index again.
+        log.warning("Could not create the search index at startup: %s", exc)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # In the background, so that the web app answers health checks while Azure AI Search is reached.
+    threading.Thread(target=_ensure_indexes_quietly, daemon=True, name="ensure-indexes").start()
+    yield
+
+
+app = FastAPI(title="MomentLens API", version="0.1.0", lifespan=lifespan)
 
 # CORS: the UI is served from the same origin; only the local dev servers need an allowance.
 app.add_middleware(
