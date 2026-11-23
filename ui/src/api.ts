@@ -2,7 +2,6 @@ export type ViIndexingWindowSeconds = 0 | 20 | 30;
 
 export type ContentType =
   | "soccer_match"
-  | "soccer_slim"
   | "tennis_match"
   | "talk_show"
   | "music_event"

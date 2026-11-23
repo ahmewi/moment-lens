@@ -26,7 +26,6 @@ class StageInfo(BaseModel):
 
 ContentType = Literal[
     "soccer_match",
-    "soccer_slim",
     "tennis_match",
     "talk_show",
     "music_event",

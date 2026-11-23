@@ -71,7 +71,6 @@ EVENT_SEARCH_QUERIES = {
 }
 PROFILES = {
     "soccer_match": {"name": "Soccer game", "events": SOCCER_EVENTS, "queries": SOCCER_QUERIES},
-    "soccer_slim": {"name": "Soccer game", "events": SOCCER_EVENTS, "queries": SOCCER_QUERIES},
 }
 MIN_CONFIDENCE = 0.8
 
