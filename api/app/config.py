@@ -20,24 +20,6 @@ class Settings(BaseSettings):
     azure_storage_insights_container: str = Field(default="insights", alias="AZURE_STORAGE_INSIGHTS_CONTAINER")
     azure_storage_thumbnails_container: str = Field(default="thumbnails", alias="AZURE_STORAGE_THUMBNAILS_CONTAINER")
 
-    # OTP access gate. The UI requires an OTP session and protected API routes
-    # validate the bearer token. ACS can be left blank for local dev; the code
-    # is then logged server-side instead of emailed.
-    otp_auth_enabled: bool = Field(default=True, alias="OTP_AUTH_ENABLED")
-    allowed_domains: str = Field(default="example.com", alias="ALLOWED_DOMAINS")
-    otp_expiry_seconds: int = Field(default=300, alias="OTP_EXPIRY_SECONDS")
-    otp_length: int = Field(default=6, alias="OTP_LENGTH")
-    session_token_secret: str = Field(
-        default="CHANGE-ME-IN-PRODUCTION-USE-A-REAL-SECRET-KEY-HERE",
-        alias="SESSION_TOKEN_SECRET",
-    )
-    session_token_expiry_minutes: int = Field(default=120, alias="SESSION_TOKEN_EXPIRY_MINUTES")
-    acs_connection_string: str = Field(default="", alias="ACS_CONNECTION_STRING")
-    acs_sender_email: str = Field(
-        default="DoNotReply@<your-acs-domain>.azurecomm.net",
-        alias="ACS_SENDER_EMAIL",
-    )
-
     # Search
     azure_search_endpoint: str = Field(default="", alias="AZURE_SEARCH_ENDPOINT")
     search_index_option1: str = Field(default="moments-option1", alias="AZURE_SEARCH_INDEX_OPTION1")
@@ -129,10 +111,6 @@ class Settings(BaseSettings):
     # ── Cost telemetry rates (USD; demo defaults — adjust per agreement) ──
     cost_rate_vi_per_minute: float = Field(default=0.04, alias="COST_RATE_VI_PER_MINUTE")
     cost_rate_embedding_per_million_tokens: float = Field(default=0.13, alias="COST_RATE_EMBEDDING_PER_MILLION_TOKENS")
-
-    @property
-    def allowed_domains_list(self) -> list[str]:
-        return [d.strip().lower() for d in self.allowed_domains.split(",") if d.strip()]
 
 
 settings = Settings()

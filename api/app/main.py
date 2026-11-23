@@ -4,14 +4,13 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
-from app.routers import auth, media, option1, search, upload, videos
-from app.services.auth_middleware import require_auth
+from app.routers import media, option1, search, upload, videos
 from app.telemetry import configure as configure_telemetry
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -43,10 +42,6 @@ def health() -> dict:
         "indexes": {
             "option1": settings.search_index_option1,
         },
-        "auth": {
-            "enabled": settings.otp_auth_enabled,
-            "allowed_domains": settings.allowed_domains_list,
-        },
     }
 
 
@@ -60,20 +55,14 @@ def config() -> dict:
             "accountName": settings.vi_account_name,
             "location": settings.vi_location,
         },
-        "auth": {
-            "enabled": settings.otp_auth_enabled,
-            "allowedDomains": settings.allowed_domains_list,
-        },
     }
 
 
-protected = [Depends(require_auth)] if settings.otp_auth_enabled else []
-app.include_router(auth.router,    prefix="/api/auth",   tags=["auth"])
-app.include_router(media.router,   prefix="/api/media",  tags=["media"], dependencies=protected)
-app.include_router(upload.router,  prefix="/api/upload", tags=["upload"], dependencies=protected)
-app.include_router(option1.router, prefix="/api/option1", tags=["option1-vi"], dependencies=protected)
-app.include_router(search.router,  prefix="/api/search",  tags=["search"], dependencies=protected)
-app.include_router(videos.router,  prefix="/api/videos",  tags=["library"], dependencies=protected)
+app.include_router(media.router,   prefix="/api/media",   tags=["media"])
+app.include_router(upload.router,  prefix="/api/upload",  tags=["upload"])
+app.include_router(option1.router, prefix="/api/option1", tags=["option1-vi"])
+app.include_router(search.router,  prefix="/api/search",  tags=["search"])
+app.include_router(videos.router,  prefix="/api/videos",  tags=["library"])
 
 
 # Serve built React UI from /app/static (created at Docker build time)

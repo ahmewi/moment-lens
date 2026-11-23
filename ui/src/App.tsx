@@ -1,10 +1,7 @@
-import { Button, Tab, TabList, makeStyles, shorthands, tokens, Text, Caption1 } from "@fluentui/react-components";
-import { SignOutRegular } from "@fluentui/react-icons";
+import { Tab, TabList, makeStyles, shorthands, tokens, Caption1 } from "@fluentui/react-components";
 import { Routes, Route, useNavigate, useLocation, Navigate } from "react-router-dom";
-import { useOTPAuth } from "./context/OTPAuthContext";
 import PipelinePage from "./pages/PipelinePage";
 import LibraryPage from "./pages/LibraryPage";
-import LoginPage from "./pages/LoginPage";
 import UploadPane from "./components/UploadPane";
 
 const useStyles = makeStyles({
@@ -57,16 +54,6 @@ const useStyles = makeStyles({
     color: tokens.colorNeutralForeground3,
     marginTop: "2px",
   },
-  meta: {
-    color: tokens.colorNeutralForeground3,
-    fontSize: "12px",
-    textAlign: "right",
-  },
-  session: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-  },
   tabs: {
     marginTop: "12px",
     maxWidth: "100%",
@@ -78,14 +65,11 @@ export default function App() {
   const cls = useStyles();
   const nav = useNavigate();
   const loc = useLocation();
-  const { isAuthenticated, email, logout } = useOTPAuth();
   const tab = loc.pathname.startsWith("/library")
     ? "library"
     : loc.pathname.startsWith("/index-video")
     ? "index-video"
     : "video-indexer";
-
-  if (!isAuthenticated) return <LoginPage />;
 
   return (
     <div className={cls.shell}>
@@ -101,10 +85,6 @@ export default function App() {
                 Find the moments that matter
               </Caption1>
             </div>
-          </div>
-          <div className={cls.session}>
-            <Text className={cls.meta}>{email}</Text>
-            <Button appearance="subtle" icon={<SignOutRegular />} onClick={logout} title="Sign out" />
           </div>
         </div>
         <TabList

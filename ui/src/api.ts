@@ -161,28 +161,9 @@ export interface SceneItem {
   play_url: string;
 }
 
-const AUTH_SESSION_KEY = "momentlens_otp_session";
-
-function authToken(): string | null {
-  try {
-    const raw = sessionStorage.getItem(AUTH_SESSION_KEY) || localStorage.getItem(AUTH_SESSION_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { access_token?: string; expires_at?: string };
-    if (parsed.expires_at && new Date(parsed.expires_at).getTime() <= Date.now()) return null;
-    return parsed.access_token || null;
-  } catch {
-    return null;
-  }
-}
-
-function authHeaders(): Record<string, string> {
-  const token = authToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 async function jsonReq<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(path, {
-    headers: { "Content-Type": "application/json", ...authHeaders(), ...(init?.headers || {}) },
+    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
     credentials: "same-origin",
     ...init,
   });
@@ -233,8 +214,6 @@ export async function uploadVideo(file: File, onProgress?: (pct: number) => void
           const xhr = new XMLHttpRequest();
           xhr.open("PUT", url);
           xhr.setRequestHeader("Content-Type", "application/octet-stream");
-          const token = authToken();
-          if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
           xhr.upload.onprogress = (e) => {
             if (!e.lengthComputable || !onProgress) return;
             const done = i * blockSize + e.loaded;
@@ -274,31 +253,6 @@ export async function uploadVideo(file: File, onProgress?: (pct: number) => void
 
   if (onProgress) onProgress(100);
   return committed;
-}
-
-export function requestOtp(email: string) {
-  return jsonReq<{ success: boolean; message: string }>("/api/auth/request-otp", {
-    method: "POST",
-    body: JSON.stringify({ email }),
-  });
-}
-
-export function verifyOtp(email: string, code: string) {
-  return jsonReq<{
-    success: boolean;
-    access_token: string;
-    token_type: string;
-    expires_at: string;
-    expires_in_seconds: number;
-    email: string;
-  }>("/api/auth/verify-otp", {
-    method: "POST",
-    body: JSON.stringify({ email, code }),
-  });
-}
-
-export function logoutSession() {
-  return jsonReq<{ success: boolean }>("/api/auth/logout", { method: "POST" });
 }
 
 export function getViLanguages() {
