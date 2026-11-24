@@ -9,7 +9,7 @@ import {
   FolderOpen24Regular, Play24Regular, ChevronDown20Regular,
 } from "@fluentui/react-icons";
 import type { ContentType, ProcessJob, StageInfo, StageName, StageStatus, StoredVideo, VideoIndexerLanguage, ViIndexingWindowSeconds } from "../api";
-import { CONTENT_TYPES, getStatus, getStoredVideos, getViLanguages, referenceStoredVideo, startProcess, uploadVideo } from "../api";
+import { CONTENT_TYPES, getConfig, getStatus, getStoredVideos, getViLanguages, referenceStoredVideo, startProcess, uploadVideo } from "../api";
 import SceneFilmstrip from "./SceneFilmstrip";
 
 interface Props {
@@ -29,6 +29,12 @@ interface UploadItem {
 
 // Cap concurrent in-flight uploads so we don't hammer Video Indexer (HTTP 429).
 const MAX_IN_FLIGHT = 10;
+
+function formatLimit(megabytes: number): string {
+  if (megabytes < 1024) return `${megabytes} MB`;
+  const gigabytes = megabytes / 1024;
+  return `${Number.isInteger(gigabytes) ? gigabytes : gigabytes.toFixed(1)} GB`;
+}
 
 const INDEXING_WINDOWS: { value: ViIndexingWindowSeconds; label: string }[] = [
   { value: 20, label: "20 seconds" },
@@ -211,6 +217,11 @@ export default function UploadPane({ onIndexed }: Props) {
   const [languagesLoading, setLanguagesLoading] = useState(false);
   const [languageError, setLanguageError] = useState(false);
   const [languageReload, setLanguageReload] = useState(0);
+  const [maxUploadMb, setMaxUploadMb] = useState<number | null>(null);
+
+  useEffect(() => {
+    getConfig().then((config) => setMaxUploadMb(config.maxUploadMB)).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (sourceMode !== "storage") return;
@@ -345,7 +356,7 @@ export default function UploadPane({ onIndexed }: Props) {
         <Tab value="storage" icon={<FolderOpen24Regular />}>Storage</Tab>
       </TabList>
       {sourceMode === "upload" && <Body1 block className={cls.meta} style={{ marginTop: 4 }}>
-        Max 10&nbsp;GB each · MP4 / MOV / MKV / WEBM / MPEG. Pick or drop multiple files — each one is indexed via{" "}
+        {maxUploadMb ? `Max ${formatLimit(maxUploadMb)} each · ` : ""}MP4 / MOV / MKV / WEBM / MPEG. Pick or drop multiple files — each one is indexed via{" "}
         <strong>Azure AI Video Indexer</strong>.
       </Body1>}
 

@@ -249,6 +249,15 @@ export async function uploadVideo(file: File, onProgress?: (pct: number) => void
   return committed;
 }
 
+export interface AppConfig {
+  maxUploadMB: number;
+  maxUploadMinutes: number;
+}
+
+export function getConfig() {
+  return jsonReq<AppConfig>("/api/config");
+}
+
 export function getViLanguages() {
   return jsonReq<VideoIndexerLanguage[]>("/api/indexing/languages");
 }
