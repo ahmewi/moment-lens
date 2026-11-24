@@ -254,8 +254,8 @@ def extract_window_frames(
 
     Keyframes are the default; keyframes_only=False decodes dense temporal samples for targeted review.
 
-    Cost is per PROCESS (TLS, container-index parse), not per frame: measured on the 3GB 1080p50
-    broadcast source on a 1-vCPU host, 6 windows x 4 frames took 1.6s this way versus ~14s for 24
+    Cost is per PROCESS (TLS, container-index parse), not per frame: measured on a 3 GB 1080p50
+    source video on a 1-vCPU host, 6 windows x 4 frames took 1.6s this way versus ~14s for 24
     one-frame processes (which also starve the web worker). Keyframes are cheap to decode and
     encoders place them on shot changes, so they also tend to be distinct views. Frames come back
     in chronological order; fewer than `n` (or none) is possible when the window has few keyframes,

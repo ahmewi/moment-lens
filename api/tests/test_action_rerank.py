@@ -999,7 +999,7 @@ class RerankActionCandidatesTests(unittest.TestCase):
         self.assertIn("do not prove", prompt)
         self.assertIn("trust the frames", prompt)
         # Excited commentary that only describes a shot ("land it in the far corner" on a miss) must
-        # not count as a goal; measured: 20:25 of the real match was judged a goal in 37-75% of runs.
+        # not count as a goal (without this rule such a miss was judged a goal in 37-75% of runs).
         self.assertIn("Excited commentary is not proof", prompt)
 
 
@@ -1409,6 +1409,41 @@ class SearchVisualRerankIntegrationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         gather_mock.assert_not_called()
         rerank_mock.assert_not_called()
+
+
+class ChatDeploymentParameterTests(unittest.TestCase):
+    """The `chat` deployment takes classic parameters, or reasoning parameters when an effort is configured."""
+
+    def create_kwargs(self, effort):
+        fake_client = Mock()
+        fake_client.chat.completions.create.return_value = _fake_chat_response(json.dumps({"summary": "s", "expanded_query": "q"}))
+        with (
+            patch.object(settings, "azure_openai_chat_reasoning_effort", effort),
+            patch.object(openai_helpers, "openai_client", return_value=fake_client),
+        ):
+            openai_helpers.rewrite_query("goals")
+            openai_helpers.summarize_scene("transcript", [], [])
+            openai_helpers.enrich_scene("transcript", [], [], "")
+        return [call.kwargs for call in fake_client.chat.completions.create.call_args_list]
+
+    def test_classic_models_get_temperature_and_max_tokens(self):
+        calls = self.create_kwargs("")
+        self.assertEqual(len(calls), 3)
+        for kwargs in calls:
+            self.assertIn("temperature", kwargs)
+            self.assertIn("max_tokens", kwargs)
+            self.assertNotIn("reasoning_effort", kwargs)
+            self.assertNotIn("max_completion_tokens", kwargs)
+
+    def test_reasoning_models_get_max_completion_tokens_with_headroom_and_no_temperature(self):
+        calls = self.create_kwargs(" Low ")
+        self.assertEqual(len(calls), 3)
+        for kwargs in calls:
+            self.assertEqual(kwargs["reasoning_effort"], "low")
+            self.assertNotIn("temperature", kwargs)
+            self.assertNotIn("max_tokens", kwargs)
+        # The answer budget (250 for the query rewrite) is raised by the headroom hidden reasoning needs.
+        self.assertEqual(calls[0]["max_completion_tokens"], 250 + openai_helpers._CHAT_REASONING_HEADROOM)
 
 
 if __name__ == "__main__":

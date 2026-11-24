@@ -49,7 +49,7 @@ class Settings(BaseSettings):
 
     # Index-time visual enrichment: the judge model describes the frames of every scene card and tags the
     # visible events ("yellow card", "free kick"), folded into summary/labels before embedding, so event queries can
-    # find windows whose speech never mentions the event (this broadcast's transcript is mostly noise). About one
+    # find windows whose speech never mentions the event (the transcript of some recordings is mostly noise). About one
     # judge call (~3.7k tokens) per card; fails open.
     visual_enrich_enabled: bool = Field(default=True, alias="VISUAL_ENRICH_ENABLED")
     visual_enrich_max_cards: int = Field(default=600, alias="VISUAL_ENRICH_MAX_CARDS")
@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     azure_openai_chat_deployment: str = Field(default="chat", alias="AZURE_OPENAI_CHAT_DEPLOYMENT")
     azure_openai_embedding_deployment: str = Field(default="embedding", alias="AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
     azure_openai_api_version: str = Field(default="2024-10-21", alias="AZURE_OPENAI_API_VERSION")
+    # Scene summaries and query rewriting use this deployment with classic chat parameters (`temperature`,
+    # `max_tokens`). For a reasoning-style model (for example a gpt-5 family deployment named `chat`) set
+    # low | medium | high: the calls then use `max_completion_tokens` and `reasoning_effort` instead. A reasoning
+    # model needs an API version that supports them (see AZURE_OPENAI_API_VERSION above).
+    azure_openai_chat_reasoning_effort: str = Field(default="", alias="AZURE_OPENAI_CHAT_REASONING_EFFORT")
     # Judge model for the action-aware rerank: it classifies every candidate from its transcript,
     # clip insights (summary/labels/OCR) and, for the best text matches, sampled video frames.
     # Empty = reuse the chat deployment on the primary account above. Small chat models cannot

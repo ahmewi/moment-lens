@@ -29,6 +29,22 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     return out
 
 
+# Hidden reasoning counts against `max_completion_tokens`, so a reasoning model needs headroom above the answer budget.
+_CHAT_REASONING_HEADROOM = 1500
+
+
+def _chat_params(max_tokens: int, temperature: float) -> dict:
+    """Sampling and length parameters for a call to the `chat` deployment.
+
+    Classic chat models take `temperature` and `max_tokens`. Reasoning-style models reject both, so setting
+    AZURE_OPENAI_CHAT_REASONING_EFFORT switches to `max_completion_tokens` and `reasoning_effort`.
+    """
+    effort = settings.azure_openai_chat_reasoning_effort.strip().lower()
+    if effort:
+        return {"max_completion_tokens": max_tokens + _CHAT_REASONING_HEADROOM, "reasoning_effort": effort}
+    return {"temperature": temperature, "max_tokens": max_tokens}
+
+
 SCENE_CARD_SYSTEM_PROMPT = """You are a sports/broadcast video analyst.
 Given a transcript window and detected entities/labels for a video segment, produce a concise scene card as JSON.
 Be neutral, factual, and short. Do not invent facts not supported by the inputs."""
@@ -50,8 +66,7 @@ def summarize_scene(transcript: str, labels: list[str], entities: list[str], ocr
             {"role": "user", "content": user},
         ],
         response_format={"type": "json_object"},
-        temperature=0.2,
-        max_tokens=200,
+        **_chat_params(max_tokens=200, temperature=0.2),
     )
     try:
         data = json.loads(resp.choices[0].message.content or "{}")
@@ -162,8 +177,7 @@ def enrich_scene(
                 {"role": "user", "content": user},
             ],
             response_format={"type": "json_object"},
-            temperature=0.1,
-            max_tokens=max_tokens,
+            **_chat_params(max_tokens=max_tokens, temperature=0.1),
         )
         data = json.loads(resp.choices[0].message.content or "{}")
         return {
@@ -205,8 +219,7 @@ def rewrite_query(query: str) -> dict:
                 {"role": "user", "content": q},
             ],
             response_format={"type": "json_object"},
-            temperature=0.0,
-            max_tokens=250,
+            **_chat_params(max_tokens=250, temperature=0.0),
         )
         data = json.loads(resp.choices[0].message.content or "{}")
         return {
