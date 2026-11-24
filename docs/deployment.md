@@ -188,6 +188,12 @@ works too, but the next deployment removes rules the template does not list). Th
   identity, remove the orphaned role assignments ("Identity not found") and deploy again.
 * **Video Indexer or the first requests fail right after deployment.** Role assignments can take a few minutes to
   propagate; run the script again.
+* **Video Indexer fails with a storage error** (the job status shows a failed `analyze` stage). Video Indexer reads
+  the video and writes its results to the storage account as the managed identity, and is admitted through the storage
+  firewall by resource ID. Check that the identity still has **Storage Blob Data Owner** on the account, that the
+  account's **Networking > Resource instances** lists the Video Indexer account, and that no Azure Policy changes the
+  account's network or key settings. The template turns shared-key access off; if your Video Indexer region or version
+  turns out to require it, set `allowSharedKeyAccess` to `true` in `infra/modules/resources.bicep` and deploy again.
 * **Storage "AuthorizationFailure" or "This request is not authorized" from your machine.** The firewall is closed to the
   internet; see "Run the API locally". Storage keys do not exist, so Storage Explorer and other tools must sign in
   with Entra ID.
