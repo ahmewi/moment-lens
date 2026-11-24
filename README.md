@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="ui/public/momentlens-logo.svg" alt="MomentLens logo" width="128" height="128">
+  <img src="ui/public/momentlens-logo.png" alt="MomentLens logo" width="300">
 </p>
 
 <h1 align="center">MomentLens</h1>
