@@ -28,7 +28,7 @@ jobs:
       - name: Install
         run: pip install -e "api[dev]"
       - name: Lint
-        run: ruff check --config api/pyproject.toml api scripts
+        run: ruff check api scripts
       - name: Test (offline, no Azure access needed)
         working-directory: api
         run: python -m pytest
