@@ -69,20 +69,6 @@ money as soon as they exist: Video Indexer, Azure OpenAI and Azure AI Search are
 > run searches at your expense. Restrict it with `ALLOWED_CLIENT_IPS="203.0.113.7,198.51.100.0/24" ./scripts/deploy.sh`
 > and/or turn on Microsoft Entra authentication for the web app (steps in [docs/deployment.md](docs/deployment.md#protect-the-site)).
 
-## Security
-
-* **No secrets in the repository or the templates.** There are no keys, passwords, connection strings or SAS tokens
-  to commit: storage shared keys, AI Search API keys and Azure OpenAI keys are disabled, and all access uses
-  managed identities with Azure RBAC (locally, your `az login`). CI scans the full history with gitleaks.
-  Two services still receive a value from Azure at deployment time: the Container Apps environment gets the Log
-  Analytics workspace key and the web app gets the Application Insights connection string. Azure resolves both during
-  the deployment; they are never written to the repository, the outputs or the script's output.
-* **Private data path.** The storage account accepts traffic only from its private endpoints, trusted Azure services
-  (Video Indexer is admitted by resource ID) and addresses you list explicitly.
-* **Defensive API.** Blob URLs are accepted only for the configured container, ids and paths are validated, uploads
-  cannot overwrite existing blobs, and uploaded files are never served as pages.
-* Video Indexer, Azure OpenAI and Azure AI Search process your videos and transcripts under the terms of your Azure
-  agreement. Only index content you have the right to process.
 
 ## Run it locally
 
