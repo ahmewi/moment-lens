@@ -76,7 +76,7 @@ export default function App() {
       <header className={cls.header}>
         <div className={cls.topRow}>
           <div className={cls.brand}>
-            <img src="/momentlens-logo.png" alt="MomentLens" className={cls.logo} />
+            <img src="/momentlens-portal-logo.png" alt="MomentLens" className={cls.logo} />
             <div className={cls.brandText}>
               <div className={cls.brandName}>
                 <span className={cls.brandMoment}>Moment</span><span className={cls.brandLens}>Lens</span>
