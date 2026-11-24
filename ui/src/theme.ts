@@ -1,4 +1,4 @@
-import { BrandVariants, createLightTheme, Theme } from "@fluentui/react-components";
+import { BrandVariants, createDarkTheme, createLightTheme, Theme } from "@fluentui/react-components";
 
 // MomentLens brand ramp: indigo/blue, in keeping with the navy of the logo.
 const momentLensBrand: BrandVariants = {
@@ -22,4 +22,9 @@ const momentLensBrand: BrandVariants = {
 
 export const momentLensLightTheme: Theme = {
   ...createLightTheme(momentLensBrand),
+};
+
+// For the navy banner, so its tabs stay readable on a dark background.
+export const momentLensDarkTheme: Theme = {
+  ...createDarkTheme(momentLensBrand),
 };
