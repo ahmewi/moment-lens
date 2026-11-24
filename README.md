@@ -1,4 +1,8 @@
-# MomentLens
+<p align="center">
+  <img src="ui/public/momentlens-logo.svg" alt="MomentLens logo" width="128" height="128">
+</p>
+
+<h1 align="center">MomentLens</h1>
 
 Find the moment you are looking for in a video. Describe it in plain language, such as *"a scored goal"* or *"the panel
 discussion about transport"*, and MomentLens jumps to the right second. Videos are analysed with **Azure AI Video

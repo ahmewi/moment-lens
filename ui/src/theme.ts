@@ -1,6 +1,6 @@
 import { BrandVariants, createLightTheme, Theme } from "@fluentui/react-components";
 
-// MomentLens brand ramp — derived from the logo (purple→magenta→cyan).
+// MomentLens brand ramp: indigo/blue, in keeping with the navy of the logo.
 const momentLensBrand: BrandVariants = {
   10: "#020306",
   20: "#101427",
