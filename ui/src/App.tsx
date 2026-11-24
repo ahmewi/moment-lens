@@ -1,8 +1,9 @@
-import { Tab, TabList, makeStyles, shorthands, tokens, Caption1 } from "@fluentui/react-components";
+import { FluentProvider, Tab, TabList, makeStyles, Caption1 } from "@fluentui/react-components";
 import { Routes, Route, useNavigate, useLocation, Navigate } from "react-router-dom";
 import PipelinePage from "./pages/PipelinePage";
 import LibraryPage from "./pages/LibraryPage";
 import UploadPane from "./components/UploadPane";
+import { momentLensDarkTheme } from "./theme";
 
 const useStyles = makeStyles({
   shell: {
@@ -13,8 +14,8 @@ const useStyles = makeStyles({
   },
   header: {
     padding: "16px 32px 0",
-    ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
-    background: `linear-gradient(180deg, ${tokens.colorNeutralBackground3} 0%, ${tokens.colorNeutralBackground2} 100%)`,
+    // The navy of the logo artwork: top of the badge to the pin's inner disc.
+    background: "linear-gradient(180deg, #0D0A3D 0%, #080430 100%)",
     backdropFilter: "saturate(140%) blur(8px)",
     "@media (max-width: 600px)": { padding: "12px 16px 0" },
   },
@@ -48,10 +49,10 @@ const useStyles = makeStyles({
     lineHeight: 1.05,
     "@media (max-width: 600px)": { fontSize: "26px" },
   },
-  brandMoment: { color: "#0F2A6B" },
+  brandMoment: { color: "#FFFFFF" },
   brandLens: { color: "#F2811D" },
   tagline: {
-    color: tokens.colorNeutralForeground3,
+    color: "#C5CAF5",
     marginTop: "2px",
   },
   tabs: {
@@ -74,29 +75,31 @@ export default function App() {
   return (
     <div className={cls.shell}>
       <header className={cls.header}>
-        <div className={cls.topRow}>
-          <div className={cls.brand}>
-            <img src="/momentlens-portal-logo.png" alt="MomentLens" className={cls.logo} />
-            <div className={cls.brandText}>
-              <div className={cls.brandName}>
-                <span className={cls.brandMoment}>Moment</span><span className={cls.brandLens}>Lens</span>
+        <FluentProvider theme={momentLensDarkTheme} style={{ background: "transparent" }}>
+          <div className={cls.topRow}>
+            <div className={cls.brand}>
+              <img src="/momentlens-logo.png" alt="MomentLens" className={cls.logo} />
+              <div className={cls.brandText}>
+                <div className={cls.brandName}>
+                  <span className={cls.brandMoment}>Moment</span><span className={cls.brandLens}>Lens</span>
+                </div>
+                <Caption1 className={cls.tagline}>
+                  Find the moments that matter
+                </Caption1>
               </div>
-              <Caption1 className={cls.tagline}>
-                Find the moments that matter
-              </Caption1>
             </div>
           </div>
-        </div>
-        <TabList
-          className={cls.tabs}
-          selectedValue={tab}
-          onTabSelect={(_, d) => nav("/" + d.value)}
-          size="large"
-        >
-          <Tab value="video-indexer">Find moments</Tab>
-          <Tab value="index-video">Index a video</Tab>
-          <Tab value="library">Library</Tab>
-        </TabList>
+          <TabList
+            className={cls.tabs}
+            selectedValue={tab}
+            onTabSelect={(_, d) => nav("/" + d.value)}
+            size="large"
+          >
+            <Tab value="video-indexer">Find moments</Tab>
+            <Tab value="index-video">Index a video</Tab>
+            <Tab value="library">Library</Tab>
+          </TabList>
+        </FluentProvider>
       </header>
       <main style={{ flex: 1, overflow: "auto" }}>
         <Routes>
