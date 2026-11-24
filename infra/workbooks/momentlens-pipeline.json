@@ -1,0 +1,170 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# MomentLens - pipeline cost and latency\n\nCustom metrics emitted by the API for every indexing run (Application Insights `customMetrics`):\n\n* **`momentlens.pipeline.runs`** - counter, one per run (succeeded or failed)\n* **`momentlens.pipeline.latency_seconds`** - histogram, wall-clock time of a run\n* **`momentlens.pipeline.cost_usd`** - histogram, estimated cost of a run in USD (list prices configured in the API)\n* **`momentlens.pipeline.scene_count`** - histogram, scene cards produced by a run\n\nDimensions: `content_type`, `status`.\n\nThe last section reads the console log of the `vi-poller` Container Apps job from the Log Analytics workspace selected below (table `ContainerAppConsoleLogs_CL`, which exists after the first job run)."
+      },
+      "name": "header"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "param-time-range",
+            "version": "KqlParameterItem/1.0",
+            "name": "TimeRange",
+            "label": "Time range",
+            "type": 4,
+            "value": { "durationMs": 86400000 },
+            "typeSettings": {
+              "selectableValues": [
+                { "durationMs": 3600000 },
+                { "durationMs": 14400000 },
+                { "durationMs": 86400000 },
+                { "durationMs": 604800000 },
+                { "durationMs": 2592000000 }
+              ]
+            }
+          },
+          {
+            "id": "param-workspace",
+            "version": "KqlParameterItem/1.0",
+            "name": "Workspace",
+            "label": "Log Analytics workspace",
+            "type": 5,
+            "isRequired": true,
+            "multiSelect": false,
+            "typeSettings": {
+              "additionalResourceOptions": [],
+              "showDefault": false,
+              "resourceTypeFilter": { "microsoft.operationalinsights/workspaces": true }
+            },
+            "timeContext": { "durationMs": 86400000 },
+            "value": "__LOG_ANALYTICS_WORKSPACE_ID__"
+          }
+        ],
+        "style": "pills",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components"
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customMetrics\n| where timestamp {TimeRange}\n| where name == 'momentlens.pipeline.runs'\n| extend status = tostring(customDimensions.status), content_type = tostring(customDimensions.content_type)\n| summarize Runs = sum(valueSum) by status, content_type\n| order by status asc, content_type asc",
+        "size": 1,
+        "title": "Runs by status",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table"
+      },
+      "name": "runs-by-status"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customMetrics\n| where timestamp {TimeRange}\n| where name == 'momentlens.pipeline.cost_usd'\n| extend content_type = tostring(customDimensions.content_type)\n| summarize TotalUSD = round(sum(valueSum), 4), Runs = sum(valueCount), AvgPerRun = round(sum(valueSum) / sum(valueCount), 4) by content_type\n| order by content_type asc",
+        "size": 1,
+        "title": "Estimated cost (USD) by content type",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table"
+      },
+      "name": "cost-summary"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customMetrics\n| where timestamp {TimeRange}\n| where name == 'momentlens.pipeline.latency_seconds'\n| summarize avg_s = avg(valueSum / valueCount), p95_s = percentile(valueSum / valueCount, 95) by bin(timestamp, 15m)\n| render timechart",
+        "size": 0,
+        "title": "Pipeline latency over time (seconds)",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components"
+      },
+      "name": "latency-trend"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customMetrics\n| where timestamp {TimeRange}\n| where name == 'momentlens.pipeline.cost_usd'\n| extend content_type = tostring(customDimensions.content_type)\n| summarize CostUSD = sum(valueSum) by bin(timestamp, 1h), content_type\n| render columnchart",
+        "size": 0,
+        "title": "Estimated cost (USD) per hour",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components"
+      },
+      "name": "cost-trend"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customMetrics\n| where timestamp {TimeRange}\n| where name == 'momentlens.pipeline.scene_count'\n| extend content_type = tostring(customDimensions.content_type)\n| summarize Scenes = sum(valueSum), Runs = sum(valueCount), AvgScenesPerRun = round(sum(valueSum) / sum(valueCount), 1) by content_type\n| order by content_type asc",
+        "size": 0,
+        "title": "Scene cards per run",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table"
+      },
+      "name": "scenes-per-run"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "traces\n| where timestamp {TimeRange}\n| where message has 'telemetry: status='\n| project timestamp, message\n| top 100 by timestamp desc",
+        "size": 0,
+        "title": "Per-run log lines (most recent first)",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table"
+      },
+      "name": "pipeline-log-lines"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## vi-poller job\n\nThe `vi-poller` Container Apps job waits for Video Indexer to finish a video and stores the insights in Blob Storage. Its output is read from the workspace selected above."
+      },
+      "name": "job-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "ContainerAppConsoleLogs_CL\n| where TimeGenerated {TimeRange}\n| extend Job = coalesce(column_ifexists('ContainerGroupName_s', ''), column_ifexists('ContainerJobName_s', ''), column_ifexists('ContainerAppName_s', ''))\n| where Job startswith 'ml-vi-poller'\n| where Log_s has_any ('VI state', 'PromptContent', 'vi-poller')\n| project TimeGenerated, Execution = column_ifexists('ContainerGroupName_s', ''), Log_s\n| top 100 by TimeGenerated desc",
+        "size": 0,
+        "title": "Recent vi-poller progress",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["{Workspace}"],
+        "visualization": "table"
+      },
+      "name": "vi-poller-progress"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "ContainerAppConsoleLogs_CL\n| where TimeGenerated {TimeRange}\n| extend Job = coalesce(column_ifexists('ContainerGroupName_s', ''), column_ifexists('ContainerJobName_s', ''), column_ifexists('ContainerAppName_s', ''))\n| where Job startswith 'ml-vi-poller'\n| where Log_s has_any ('ERROR', 'Failed', 'Traceback', 'crashed')\n| project TimeGenerated, Execution = column_ifexists('ContainerGroupName_s', ''), Log_s\n| top 200 by TimeGenerated desc",
+        "size": 0,
+        "title": "Recent vi-poller errors",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["{Workspace}"],
+        "visualization": "table"
+      },
+      "name": "vi-poller-errors"
+    }
+  ],
+  "fallbackResourceIds": [],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

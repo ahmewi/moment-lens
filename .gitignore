@@ -1,0 +1,54 @@
+# Secrets and local environment state. Never commit these.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+local.settings.json
+outputs.json
+.azure/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Node / UI build output (the UI is compiled into the API image)
+node_modules/
+ui/dist/
+api/app/static/
+*.tsbuildinfo
+
+# Bicep build output (compiled ARM templates); the linter config and the workbook are sources
+infra/**/*.json
+!infra/bicepconfig.json
+!infra/workbooks/*.json
+
+# Sample media and generated data
+videos/
+*.mp4
+*.mkv
+*.mov
+*.avi
+
+# Logs and archives
+*.log
+*.out
+*.err
+*.zip
+
+# Editors and OS
+.vscode/
+.idea/
+*.code-workspace
+.DS_Store
+Thumbs.db

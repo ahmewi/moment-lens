@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title">
+  <title id="title">MomentLens</title>
+  <circle cx="42" cy="42" r="28" fill="#ffffff" stroke="#0F2A6B" stroke-width="8"/>
+  <path d="M65 65 L86 86" stroke="#F2811D" stroke-width="10" stroke-linecap="round"/>
+  <path d="M35 28 L58 42 L35 56 Z" fill="#F2811D" stroke="#F2811D" stroke-width="3" stroke-linejoin="round"/>
+</svg>

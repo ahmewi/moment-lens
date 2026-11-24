@@ -1,0 +1,39 @@
+/* MomentLens — Microsoft-aligned light styles */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #faf9f8;
+  color: #242424;
+  font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* { box-sizing: border-box; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.16); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.28); }
+
+:root {
+  --ml-brand-primary: #5b6cff;
+  --ml-brand-magenta: #d23dad;
+  --ml-brand-cyan: #2dd4ff;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(1200px 600px at 90% -10%, rgba(91,108,255,0.10), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(210,61,173,0.06), transparent 60%);
+  z-index: 0;
+}
+
+#root { position: relative; z-index: 1; }
