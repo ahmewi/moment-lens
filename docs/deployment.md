@@ -1,9 +1,14 @@
 # Deploying MomentLens to Azure
 
 `infra/` (Bicep) and `scripts/deploy.sh` create the whole solution in one resource group of your subscription. Nothing
-outside the template is referenced, and no key, password, connection string or SAS token is created or stored: the web
-app, the job and Video Indexer use one user-assigned managed identity with Azure RBAC, and storage shared keys,
-AI Search API keys and Azure OpenAI keys are disabled.
+outside the template is referenced, and no key, password, connection string or SAS token is committed to the repository
+or returned by the template: the web app, the job and Video Indexer use one user-assigned managed identity with Azure
+RBAC, and storage shared keys, AI Search API keys and Azure OpenAI keys are disabled.
+
+Two values are still handed over by Azure itself while the deployment runs, and never written to a file or an output:
+the Log Analytics workspace key, given to the Container Apps environment for its logs, and the Application Insights
+connection string, set as an application setting of the web app for telemetry. At run time the API also mints
+short-lived, read-only SAS links with a user delegation key (no account key exists) for Video Indexer and `ffmpeg`.
 
 ## What gets created
 
