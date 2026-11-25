@@ -53,7 +53,6 @@ registry, and Application Insights with Log Analytics.
 | Container Registry | The two container images |
 | Application Insights, Log Analytics | Telemetry, job logs, the cost and latency workbook |
 
-The icons are the official Azure Architecture Icons; see [their notice](docs/architecture/icons/README.md).
 
 ## Deploy to Azure
 
@@ -110,9 +109,6 @@ python scripts/smoke_test.py --base-url https://<your-site>   # against a deploy
 | `docs/` | Deployment guide, how it works, the architecture diagram and its icons |
 | `.github/` | CI (lint, tests, build, Bicep checks, image builds, secret scan) and Dependabot |
 
-## Limits
+## Out-of-the-box tags
 
-Indexing quality depends on the video and the models. Model output can be wrong: treat summaries, tags and judge
-verdicts as assistance and verify them against the video. Sports events such as fouls and cards are derived by this
-application (phrase search plus frame review), not detected natively by Video Indexer. More in
-[docs/how-it-works.md](docs/how-it-works.md#evidence-and-limits).
+For now, the repo uses soccer tags such as fouls and cards to demonstrate, however, it is customizable to add different tags per video profile.
